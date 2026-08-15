@@ -46,11 +46,11 @@ No stack was mandated; the following are assumptions, not requirements:
 ### 4.2 Geofenced duplicate & event-match detection (FR-2xx)
 
 - **FR-201** — On submission, the system SHALL compute a text embedding of the request's `need_description`.
-- **FR-202** — Before any semantic comparison, the system SHALL build a candidate pool of prior requests/events whose `representative_location` (an Event's centroid, or a standalone request's own location) is within a **1 km** radius of the new request, **and** which meet at least one of: (a) the candidate belongs to an Event that is not yet `dispatched`/`rejected` (no age limit — an active, ongoing emergency stays comparable no matter how long it has been open), or (b) the candidate was submitted/created within the last **48 hours** (applies to standalone requests and to inactive/resolved events, which age out).
+- **FR-202** — Before any semantic comparison, the system SHALL build a candidate pool of prior requests/events whose `representative_location` (an Event's centroid, or a standalone request's own location) is within the session's configured **geofence radius** (default **1 km**, see FR-208) of the new request, **and** which meet at least one of: (a) the candidate belongs to an Event that is not yet `dispatched`/`rejected` (no age limit — an active, ongoing emergency stays comparable no matter how long it has been open), or (b) the candidate was submitted/created within the last **48 hours** (applies to standalone requests and to inactive/resolved events, which age out).
 - **FR-203** — Within that candidate pool, the system SHALL rank candidates by cosine similarity of their embeddings and select the **top 5** for further evaluation.
 - **FR-204** — The system SHALL pre-compute the physical distance (e.g. haversine) between the new request and each of the top-5 candidates and include it as an explicit, human-readable value (e.g. "150 meters away") in the LLM prompt used to judge each candidate — raw lat/lng floats SHALL NOT be the only spatial signal given to the LLM, since the model cannot reliably reason about proximity from coordinates alone. The LLM call SHALL return, per candidate: a match/no-match judgment and a human-readable reason (e.g. "closely matches request #114, submitted 20 min ago, same neighborhood, 150m away").
 - **FR-205** — Cluster assignment for a new request that the LLM judged a match against one or more candidates:
-  1. **Geometric filter first**: discard any matched candidate's Event if adding the new request would place any member (or the new request itself) more than **1.5 km** from that Event's `representative_location`.
+  1. **Geometric filter first**: discard any matched candidate's Event if adding the new request would place any member (or the new request itself) more than the session's configured **max-cluster-span** (default **1.5 km**, see FR-208) from that Event's `representative_location`.
   2. **Authority selection**: among the Events that survive the geometric filter, join the new request to the one with the highest operational authority, ranked `dispatched` > `verified` > `candidate`.
   3. If the matched Event is `verified` or `dispatched`, the new request SHALL NOT auto-inherit verified/active status — it attaches with `status = pending_addition` (see FR-304b) rather than immediately joining the active queue.
   4. If the matched Event is `candidate`, the new request joins it directly as an unverified member.
@@ -58,6 +58,7 @@ No stack was mandated; the following are assumptions, not requirements:
   6. The system SHALL NOT automatically merge two distinct existing Events under any circumstance.
 - **FR-205b** — If an LLM match spans multiple distinct Events (including ones excluded by the geometric filter in FR-205 step 1), the system SHALL surface a **"Suggested Merge"** indicator on the relevant Incident Cards, allowing a coordinator to manually merge them into one Event.
 - **FR-206** — A request with no LLM-judged matches SHALL be `standalone` and SHALL still be individually visible to coordinators via the Intake & Verification Inbox (§4.4), not silently dropped.
+- **FR-208 (Configurable spatial parameters)** — The geofence radius (FR-202, default 1 km) and max-cluster-span (FR-205, default 1.5 km) SHALL be configurable at session/seed-run start (e.g. a seed-script flag or session-init API parameter, per FR-701–702), not hardcoded, so a demo can illustrate tuning for a denser urban area vs. a sparser rural one without a real terrain/population-density model behind it. Once a session starts, these values SHALL remain fixed for the duration of that session — they are not intended to change mid-session.
 
 ### 4.3 Verification & device scrutiny (FR-3xx)
 
@@ -96,16 +97,20 @@ No stack was mandated; the following are assumptions, not requirements:
 - **FR-504b** — If a "Split Out", "Reject & Flag Device", or "Rescue" action causes an Event's active member count to drop to exactly 1, the system SHALL automatically dissolve that Event: the sole remaining request has its `event_id` cleared, reverts to `standalone`, and keeps whichever verification state it individually held (i.e., stays in the Dispatch Queue if it was already verified, or the Intake Inbox if not) — it SHALL remain visible via FR-401/FR-403, never orphaned.
 - **FR-505** — A standalone (unclustered) request SHALL be actionable individually via single-click inline **"Verify & Dispatch"** / **"Reject"** actions directly from the Intake & Verification Inbox list view, without requiring an expanded detail view, to keep per-item friction bounded even though every standalone request requires an explicit human action (see rationale in §10, Finding 3).
 - **FR-506** — Every flag or match judgment shown to a coordinator (duplicate match, urgency score, device flag) SHALL be accompanied by a human-readable reason string generated at detection time (FR-204), not a bare numeric score.
+- **FR-507** — A `candidate` Event's Incident Card SHALL support a **"Dismiss Cluster"** action, distinct from FR-503's "Reject & Flag Device," for cases where the grouping itself was simply wrong (an LLM mis-merge of unrelated reports) with no fraud implied. This action: (a) dissolves the Event entirely; (b) reverts every current member to `standalone`, each re-entering the Intake & Verification Inbox for independent evaluation; (c) SHALL NOT set `device_flag` on any member's device fingerprint. Only available on `candidate` Events — a `verified` Event's members are dismissed one at a time via Split Out (FR-504) instead, since verified members have already received individual coordinator attention.
 
 ### 4.6 Feedback loop (FR-6xx)
 
-- **FR-601** — Every coordinator action that confirms, overrides, or rejects a system judgment (verify event, approve pending, reject & flag device, split out, rescue, verify/reject standalone, dispatch) SHALL be recorded in an append-only action log with: actor, action type, target ID(s), timestamp.
-- **FR-602** — This action log SHALL be available in the request/Event detail view. (Whether it actively re-tunes future scoring, vs. only being displayed, remains an open item — see §9.)
+- **FR-601** — Every coordinator action that confirms, overrides, or rejects a system judgment (verify event, approve pending, reject & flag device, dismiss cluster, split out, rescue, verify/reject standalone, dispatch, override urgency) SHALL be recorded in an append-only action log with: actor, action type, target ID(s), timestamp.
+- **FR-602** — This action log SHALL be available in the request/Event detail view as a visible audit trail.
+- **FR-603 (Urgency override)** — A request's detail view SHALL support an **"Override Urgency"** action letting a coordinator set a corrected `urgency_score` (1–5) with an optional short reason, distinct from verify/reject/dispatch. This updates the request's `urgency_score` (re-triggering the sort in FR-401/FR-403) and is logged (`action_type: override_urgency`) with both the original and corrected value retained (see §6, `original_urgency_score`).
+- **FR-604 (In-context adaptive calibration)** — The system SHALL maintain a rolling buffer of the most recent N (default N=5) urgency overrides (FR-603) and the most recent N false-positive duplicate corrections (implied by Split Out, FR-504, and Dismiss Cluster, FR-507). Each subsequent LLM call for urgency scoring (FR-301) or duplicate/match judgment (FR-204) SHALL include these recent corrections as few-shot examples in its prompt, so the system's behavior visibly adapts within a session — e.g. "a coordinator recently corrected a similarly-phrased request from urgency 2 to urgency 5 with reason: 'implies trapped, not just discomfort' — apply the same reasoning here."
+- **FR-605 (Scope boundary on FR-604)** — This adaptive mechanism is prompt-level (in-context few-shot calibration) only — no model weights are trained or fine-tuned, and it SHALL NOT be described to judges as such. The rolling buffer is in-memory and SHALL be cleared by a full reset (FR-702), same as other in-memory state.
 
 ### 4.7 Demo support (FR-7xx)
 
 - **FR-701** — The system SHALL provide a seed/replay mechanism that submits a batch of pre-authored synthetic requests (target: ~50) through the same live intake API used by real submissions (not a direct database write), including at least: several genuine multi-device event clusters, at least one seeded single-device fraud cluster, and several standalone unrelated requests.
-- **FR-702** — The seed/replay mechanism SHALL be triggerable on demand. If run in "reset" mode, it SHALL perform a **complete cascading wipe of all in-memory state** — Requests, Events, `DeviceFingerprint` flags, and the `CoordinatorAction` log — before injecting the new seed batch, so no orphaned IDs, stale device flags, or dangling audit-log references survive between demo runs. If run in "append" mode, this wipe SHALL NOT occur, and the behavior (append vs. reset) SHALL be an explicit, documented choice at trigger time, not an implicit default.
+- **FR-702** — The seed/replay mechanism SHALL be triggerable on demand. If run in "reset" mode, it SHALL perform a **complete cascading wipe of all in-memory state** — Requests, Events, `DeviceFingerprint` flags, the `CoordinatorAction` log, and the FR-604 adaptive-calibration buffer — before injecting the new seed batch, so no orphaned IDs, stale device flags, or dangling audit-log references survive between demo runs. If run in "append" mode, this wipe SHALL NOT occur, and the behavior (append vs. reset) SHALL be an explicit, documented choice at trigger time, not an implicit default. A "reset" trigger MAY optionally accept the FR-208 spatial parameters (geofence radius, max-cluster-span) to start the new session with non-default values; omitting them SHALL use the FR-208 defaults.
 
 ## 5. Non-functional requirements
 
@@ -130,6 +135,7 @@ Request {
   submitted_at: datetime (UTC)
   urgency_score: int (1-5) | null         // null = NFR-103 pending/failed state
   urgency_reasoning: string | null
+  original_urgency_score: int (1-5) | null  // set only if FR-603 override occurred; preserves the LLM's original value
   event_id: string | null                 // Event this belongs to, if any
   status: enum {
     standalone,           // no event, not yet verified
@@ -164,8 +170,8 @@ CoordinatorAction (audit log, FR-601) {
   actor: string
   action_type: enum {
     verify_event, approve_pending, approve_dispatch,
-    reject_flag_device, split_out, rescue_from_quarantine,
-    verify_standalone, reject_standalone
+    reject_flag_device, dismiss_cluster, split_out, rescue_from_quarantine,
+    verify_standalone, reject_standalone, override_urgency
   }
   target_id: string
   timestamp: datetime
@@ -180,7 +186,7 @@ Note: `event_confidence` from the v0.1 draft has been removed as a variable enti
 | Method | Path | Purpose | Requirements |
 |---|---|---|---|
 | `POST` | `/api/requests` | Submit a new request | FR-101–107, FR-201–206, FR-301–302 |
-| `POST` | `/api/seed/replay` | Bulk-inject demo batch via the live intake path (reset or append mode) | FR-701–702 |
+| `POST` | `/api/seed/replay` | Bulk-inject demo batch via the live intake path (reset or append mode; reset optionally accepts geofence_radius_km / max_cluster_span_km) | FR-701–702, FR-208 |
 | `GET` | `/api/intake-inbox` | List Intake & Verification Inbox, pre-sorted, with Needs-Manual-Triage section | FR-401–402 |
 | `POST` | `/api/events/{id}/verify` | Verify a candidate Event, approve current members | FR-304, FR-502 |
 | `POST` | `/api/events/{id}/approve-pending` | Admit `pending_addition` members of an already-verified Event | FR-304b, FR-502 |
@@ -188,12 +194,14 @@ Note: `event_confidence` from the v0.1 draft has been removed as a variable enti
 | `GET` | `/api/dispatch-queue` | List Dispatch Queue, pre-sorted | FR-403 |
 | `POST` | `/api/events/{id}/devices/{device_id}/reject-and-flag` | Reject a device group's members, flag device, quarantine its other requests | FR-503, FR-306, FR-308 |
 | `POST` | `/api/requests/{id}/split-out` | Eject one request from its cluster (may dissolve the Event, FR-504b) | FR-504, FR-504b |
+| `POST` | `/api/events/{id}/dismiss` | Dismiss a candidate Event as a false-positive grouping; all members revert to standalone, no device flag set | FR-507 |
 | `POST` | `/api/requests/{id}/verify-standalone` | Verify a standalone request directly | FR-505 |
 | `POST` | `/api/requests/{id}/reject-standalone` | Reject a standalone request directly | FR-505 |
 | `GET` | `/api/quarantine` | List Quarantine Inbox | FR-407 |
 | `POST` | `/api/requests/{id}/rescue` | Move a quarantined request back to the Intake Inbox | FR-407, FR-504b |
 | `GET` | `/api/archive` | List resolved/terminal items | FR-406 |
 | `GET` | `/api/requests/{id}` | Full detail incl. reasoning + action history | FR-506, FR-602 |
+| `POST` | `/api/requests/{id}/override-urgency` | Coordinator sets a corrected urgency_score | FR-603, FR-604 |
 
 ## 8. Out of scope
 
@@ -206,9 +214,9 @@ Note: `event_confidence` from the v0.1 draft has been removed as a variable enti
 ## 9. Open questions for the user
 
 1. Exact urgency rubric wording beyond the 1/5 anchor points (FR-301) — needs the full 1–5 rubric text.
-2. FR-402: is there an explicit "this candidate Event is not real, dismiss it" action distinct from device-level Reject & Flag, for cases where a cluster is a false-positive LLM mis-merge with no bad actor involved? (Currently unresolved — Split Out on each member is the closest existing mechanism but requires per-member action.)
-3. FR-602: does the feedback/action log only display override history, or must it feed back into future scoring/rubric behavior (e.g. adaptive weighting), and if the latter, what's the mechanism given no ML training step is otherwise in scope?
-4. The 1 km geofence radius (FR-202) and 1.5 km max-cluster-span bound (FR-205) are placeholder values carried from the idea doc — do these need to vary by terrain/context (dense urban vs. rural), or are fixed constants acceptable for a demo?
+2. ~~FR-402: is there an explicit "this candidate Event is not real, dismiss it" action...~~ **Resolved**: yes — see FR-507 ("Dismiss Cluster"), distinct from device-level Reject & Flag, never sets `device_flag`.
+3. ~~FR-602: does the feedback/action log only display override history, or must it feed back into future scoring...~~ **Resolved**: it feeds back via in-context few-shot calibration — see FR-603–605 (a coordinator "Override Urgency" action plus a rolling buffer of recent corrections injected into subsequent LLM calls; explicitly prompt-level, not model training).
+4. ~~The 1 km geofence radius and 1.5 km max-cluster-span bound are placeholder values...~~ **Resolved**: kept as defaults but made configurable per session/seed-run — see FR-208 and the updated FR-702.
 
 ## 10. Change log — verification pass findings (v0.1 → v0.2)
 

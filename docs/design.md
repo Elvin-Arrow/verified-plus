@@ -1,6 +1,6 @@
 # Software Design Specification — Aid Request Triage & Trust Tool
 
-Version 0.4 · Implements `docs/spec.md` v0.3 (post rubric, sanity-pass, and cross-document alignment pass — see spec.md §11), further hardened by a 6-document alignment pass covering `docs/api-spec.md`/`docs/data-model.md`/`docs/architecture.md` (see `docs/data-model.md` §7) and an 8-document pass adding `docs/ui-spec.md`, which surfaced the missing `reject_all_quarantined` action (added, §4.5b) and the missing Event-detail read path (`GET /api/events/{id}`, `docs/api-spec.md` §7). Every design decision below is traced to the requirement ID(s) it satisfies — search for "FR-"/"NFR-" to cross-reference.
+Version 0.5 · Implements `docs/spec.md` v0.3 (post rubric, sanity-pass, and cross-document alignment pass — see spec.md §11), further hardened by a 6-document alignment pass covering `docs/api-spec.md`/`docs/data-model.md`/`docs/architecture.md` (see `docs/data-model.md` §7), an 8-document pass adding `docs/ui-spec.md` (missing `reject_all_quarantined`, §4.5b, and `GET /api/events/{id}`), and a 9-document pass adding `docs/development-plan.md`, which caught that `dispatch_event` and `reject_standalone` — both already documented in `docs/api-spec.md` — had no pseudocode here at all (added, §4.2b). Every design decision below is traced to the requirement ID(s) it satisfies — search for "FR-"/"NFR-" to cross-reference.
 
 ## 1. Architecture overview
 
@@ -322,6 +322,24 @@ def approve_pending(event_id: str, actor: str) -> None:                    # FR-
     event.pending_member_request_ids.clear()
     recompute_centroid(event)
     log_action(actor, "approve_pending", event_id)
+
+def dispatch_event(event_id: str, actor: str) -> None:                     # FR-502 "Approve" (dispatch a verified Event)
+    event = store.events[event_id]
+    assert event.status == EventStatus.VERIFIED, "only a verified Event can be dispatched"
+    event.status = EventStatus.DISPATCHED
+    for rid in event.member_request_ids:            # current active members only — a pending_addition
+        r = store.requests[rid]                       # member is NOT swept along; it must be promoted via
+        r.status = RequestStatus.DISPATCHED            # approve_pending first, same as verify_event above
+        r.verified = True
+    log_action(actor, "approve_dispatch", event_id)
+    # the Event itself persists (status=dispatched is a terminal row, not a deletion — data-model.md §3.2),
+    # visible thereafter only via GET /api/archive and GET /api/events/{id}, never the Dispatch Queue
+
+def reject_standalone(request_id: str, actor: str) -> None:                # FR-505
+    r = store.requests[request_id]
+    assert r.status == RequestStatus.STANDALONE, "only a standalone request can be rejected this way"
+    r.status = RequestStatus.REJECTED
+    log_action(actor, "reject_standalone", request_id)
 
 def verify_standalone(request_id: str, actor: str) -> None:                # FR-505: "Verify & Dispatch," atomic
     r = store.requests[request_id]

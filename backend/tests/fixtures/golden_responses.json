@@ -1,0 +1,22 @@
+[
+  {
+    "description": "Trapped under rubble — tier 5, one matching candidate 90m away",
+    "urgency_score": 5,
+    "urgency_reasoning": "Explicit immediate threat to life: trapped, unable to move.",
+    "matches": [
+      {"candidate_id": "req_990z", "is_match": true, "reason": "Same collapsed building, submitted 40 min ago, 90m away."}
+    ]
+  },
+  {
+    "description": "Need blankets for winter — tier 2, no matches",
+    "urgency_score": 2,
+    "urgency_reasoning": "General supply request, household otherwise safe.",
+    "matches": []
+  },
+  {
+    "description": "Ambiguous/truncated text — defaults to tier 3 per FR-301",
+    "urgency_score": 3,
+    "urgency_reasoning": "Score defaulted to 3: description is ambiguous/truncated, insufficient information to judge severity.",
+    "matches": []
+  }
+]

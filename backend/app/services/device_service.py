@@ -20,14 +20,20 @@ _TERMINAL = {RequestStatus.DISPATCHED, RequestStatus.REJECTED}
 
 class _DeviceService:
     def reject_and_flag_device(self, store: InMemoryStore, event_id: str, device_id: str, actor: str) -> dict:
-        device = store.devices.setdefault(device_id, DeviceFingerprint(id=device_id))
-        device.device_flag = True  # FR-306
-
         event = store.events[event_id]  # KeyError -> 404 at the router layer
         this_cards_members = [
             r for r in (store.requests[rid] for rid in list(event.member_request_ids))
             if r.device_fingerprint_id == device_id
         ]
+        if not this_cards_members:
+            # api-spec.md §4: "404 (bad event_id or device_id -- i.e. that
+            # device has no requests on this card)" -- validated before any
+            # mutation (device_flag included) so a bad call is a true no-op.
+            raise KeyError(f"device {device_id} has no requests on event {event_id}")
+
+        device = store.devices.setdefault(device_id, DeviceFingerprint(id=device_id))
+        device.device_flag = True  # FR-306
+
         rejected_ids: list[str] = []
         for r in this_cards_members:
             r.status = RequestStatus.REJECTED  # FR-503(b) -- terminal

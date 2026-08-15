@@ -301,14 +301,14 @@ def test_seed_replay_reset_requires_mode():
 
 
 def test_seed_replay_reset_happy_path():
+    from app.services.seed_service import SEED_BATCH
+
     client, store, llm = make_client()
-    for text in ["Trapped under rubble, can't move my leg",
-                 "Building collapsed near us, people trapped",
-                 "Need blankets for winter, otherwise safe"]:
-        llm.script(text, ScriptedResponse(urgency_score=3, urgency_reasoning="ok"))
+    for seed in SEED_BATCH:
+        llm.script(seed.need_description, ScriptedResponse(urgency_score=3, urgency_reasoning="ok"))
     resp = client.post("/api/seed/replay", json={"mode": "reset"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["mode"] == "reset"
     assert body["wiped"] is True
-    assert body["requests_submitted"] == 3
+    assert body["requests_submitted"] == len(SEED_BATCH)

@@ -1,8 +1,10 @@
 import * as api from '../../api/client.js'
 import { usePolling } from '../../api/usePolling.js'
 import { useActionErrorHandling } from '../../api/useActionErrorHandling.js'
+import { useMergeFlow } from '../../api/useMergeFlow.js'
 import IncidentCard from '../../components/IncidentCard.jsx'
 import StandaloneRow from '../../components/StandaloneRow.jsx'
+import MergeConfirmation from '../../components/MergeConfirmation.jsx'
 import ErrorBanner from '../../components/ErrorBanner.jsx'
 import Toast from '../../components/Toast.jsx'
 
@@ -18,6 +20,7 @@ const ACTOR = 'coordinator_1' // no auth in this version, per api-spec.md §1.
 export default function IntakeInboxView() {
   const { data, error, loading, refreshing, refetch } = usePolling(api.getIntakeInbox, POLL_INTERVAL_MS)
   const { toast, bannerError, retryBanner, runAction } = useActionErrorHandling(refetch)
+  const { mergingTarget, openMergeConfirm, confirmMerge, cancelMerge } = useMergeFlow(runAction)
 
   if (loading) return <div>Loading…</div>
   if (error) return <ErrorBanner onRetry={refetch} />
@@ -62,27 +65,35 @@ export default function IntakeInboxView() {
                 key={entry.item.id}
                 event={entry.item}
                 variant="candidate"
+                suggestedMergeRequestIds={entry.item.members
+                  .filter((m) => m.has_suggested_merge)
+                  .map((m) => m.id)}
                 onVerifyEvent={(id) => runAction(() => api.verifyEvent(id, ACTOR))}
                 onRejectAndFlagDevice={(eventId, deviceId) =>
                   runAction(() => api.rejectAndFlagDevice(eventId, deviceId, ACTOR))
                 }
                 onSplitOut={(id) => runAction(() => api.splitOut(id, ACTOR))}
                 onDismissCluster={(id) => runAction(() => api.dismissEvent(id, ACTOR))}
-                onMerge={(id) => runAction(() => api.mergeRequest(id, { actor: ACTOR }))}
+                onMerge={openMergeConfirm}
               />
             ) : (
               <StandaloneRow
                 key={entry.item.id}
                 item={entry.item}
                 variant="inbox"
+                hasSuggestedMerge={entry.item.has_suggested_merge}
                 onVerifyDispatch={(id) => runAction(() => api.verifyStandalone(id, ACTOR))}
                 onReject={(id) => runAction(() => api.rejectStandalone(id, ACTOR))}
-                onMerge={(id) => runAction(() => api.mergeRequest(id, { actor: ACTOR }))}
+                onMerge={openMergeConfirm}
               />
             )
           )
         )}
       </section>
+
+      {mergingTarget && (
+        <MergeConfirmation suggestedMerge={mergingTarget} onConfirm={confirmMerge} onCancel={cancelMerge} />
+      )}
     </div>
   )
 }

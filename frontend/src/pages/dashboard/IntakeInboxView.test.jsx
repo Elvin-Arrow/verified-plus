@@ -105,4 +105,74 @@ describe('IntakeInboxView (§5, FR-401/402)', () => {
     // refresh indicator (if any) is shown — the core §11 guarantee.
     expect(screen.getByText(/insulin runs out tonight/i)).toBeInTheDocument()
   })
+
+  // Cross-doc alignment fix: RequestSummary.has_suggested_merge (api-spec.md §1.3)
+  // is what actually drives this affordance — previously unwired because the API
+  // had no field for it (see docs/api-spec.md §1.3 changelog note).
+  it('shows the Merge affordance on a standalone row when has_suggested_merge is true', async () => {
+    const mergeable = { type: 'request', item: { ...standaloneItem.item, has_suggested_merge: true } }
+    api.getIntakeInbox.mockResolvedValue({ needs_manual_triage: [], sorted: [mergeable] })
+    renderView()
+    expect(await screen.findByRole('button', { name: /merge/i })).toBeInTheDocument()
+  })
+
+  it('does not show the Merge affordance on a standalone row when has_suggested_merge is false', async () => {
+    api.getIntakeInbox.mockResolvedValue({ needs_manual_triage: [], sorted: [standaloneItem] })
+    renderView()
+    await screen.findByText(/insulin runs out tonight/i)
+    expect(screen.queryByRole('button', { name: /merge/i })).not.toBeInTheDocument()
+  })
+
+  it('opens a confirmation (not an immediate merge) when Merge is clicked, per ui-spec.md §5.1', async () => {
+    const mergeable = { type: 'request', item: { ...standaloneItem.item, has_suggested_merge: true } }
+    api.getIntakeInbox.mockResolvedValue({ needs_manual_triage: [], sorted: [mergeable] })
+    api.getRequestDetail.mockResolvedValue({
+      id: 'req_standalone',
+      suggested_merges: [{ target_event_id: 'evt_far', distance_km: 1.9 }],
+    })
+    api.getEventDetail.mockResolvedValue({ id: 'evt_far', members: [] })
+    renderView()
+    await userEvent.click(await screen.findByRole('button', { name: /merge/i }))
+
+    expect(await screen.findByRole('dialog', { name: /confirm merge/i })).toBeInTheDocument()
+    expect(api.mergeRequest).not.toHaveBeenCalled()
+  })
+
+  it('calls mergeRequest only after the confirmation is confirmed', async () => {
+    const mergeable = { type: 'request', item: { ...standaloneItem.item, has_suggested_merge: true } }
+    api.getIntakeInbox.mockResolvedValue({ needs_manual_triage: [], sorted: [mergeable] })
+    api.getRequestDetail.mockResolvedValue({
+      id: 'req_standalone',
+      suggested_merges: [{ target_event_id: 'evt_far', distance_km: 1.9 }],
+    })
+    api.getEventDetail.mockResolvedValue({ id: 'evt_far', members: [] })
+    api.mergeRequest.mockResolvedValue({})
+    renderView()
+    await userEvent.click(await screen.findByRole('button', { name: /merge/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /confirm/i }))
+
+    expect(api.mergeRequest).toHaveBeenCalledWith('req_standalone', {
+      actor: expect.any(String),
+      targetEventId: 'evt_far',
+      targetRequestId: null,
+    })
+  })
+
+  it('shows the per-member Merge affordance inside an expanded Incident Card only for members with has_suggested_merge', async () => {
+    const eventWithMerge = {
+      type: 'event',
+      item: {
+        ...eventItem.item,
+        members: [
+          { ...eventItem.item.members[0], has_suggested_merge: true },
+          { ...eventItem.item.members[1], has_suggested_merge: false },
+        ],
+      },
+    }
+    api.getIntakeInbox.mockResolvedValue({ needs_manual_triage: [], sorted: [eventWithMerge] })
+    renderView()
+    await userEvent.click(await screen.findByRole('button', { name: /expand/i }))
+    expect(await screen.findByRole('button', { name: /merge/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /merge/i })).toHaveLength(1)
+  })
 })

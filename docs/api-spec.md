@@ -1,6 +1,6 @@
 # API Specification — Aid Request Triage & Trust Tool
 
-Version 0.2 · Implements `docs/spec.md` v0.3 §7 and `docs/design.md` v0.4 §2/§4. This document is the authoritative contract for every HTTP endpoint — request/response shapes, status codes, and error behavior — that `docs/spec.md`'s illustrative API table and `docs/design.md`'s router pseudocode both point back to. `match_reasons` and `suggested_merges[].distance_km` (§7) were the two fields this spec anticipated correctly before `docs/design.md`/`docs/data-model.md` had matching storage for them — see `docs/data-model.md` §7 for that fix. `POST /api/quarantine/{device_id}/reject-all` and `GET /api/events/{id}` (§5/§7) were added in the subsequent 8-document pass that added `docs/ui-spec.md` — both were UI affordances/FR-602 requirements with no endpoint anywhere until then.
+Version 0.3 · Implements `docs/spec.md` v0.3 §7 and `docs/design.md` v0.5 §2/§4. This document is the authoritative contract for every HTTP endpoint — request/response shapes, status codes, and error behavior — that `docs/spec.md`'s illustrative API table and `docs/design.md`'s router pseudocode both point back to. `match_reasons` and `suggested_merges[].distance_km` (§7) were the two fields this spec anticipated correctly before `docs/design.md`/`docs/data-model.md` had matching storage for them — see `docs/data-model.md` §7 for that fix. `POST /api/quarantine/{device_id}/reject-all` and `GET /api/events/{id}` (§5/§7) were added in the subsequent 8-document pass that added `docs/ui-spec.md` — both were UI affordances/FR-602 requirements with no endpoint anywhere until then. `RequestSummary.has_suggested_merge` (§1.3) was added after implementation surfaced the reverse gap: `docs/ui-spec.md` required a list-view affordance this shape had no field for.
 
 ## 1. Conventions
 
@@ -63,9 +63,12 @@ ActionType      "verify_event" | "approve_pending" | "approve_dispatch" | "rejec
   "status": "in_candidate_event",
   "verified": false,
   "event_id": "evt_d4e5f6",
-  "device_flagged": false
+  "device_flagged": false,
+  "has_suggested_merge": false
 }
 ```
+
+`has_suggested_merge` — added in a cross-document alignment pass after `docs/ui-spec.md` §5.1/§5.2 was found to require a per-row Merge affordance in list views (Intake Inbox, Dispatch Queue) that this shape had no field to drive. Deliberately a cheap boolean, not the full `distance_km`/target detail (that stays on `GET /api/requests/{id}`'s `suggested_merges` array, §7) — a list row only needs to know *whether* to show the affordance; clicking it fetches the detail to render the actual confirmation.
 
 ## 2. Intake
 

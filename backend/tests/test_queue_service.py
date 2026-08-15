@@ -184,3 +184,29 @@ def test_archive_device_flagged_marker_present():
     result = queue_service.archive(store)
 
     assert queue_service.is_device_flagged(store, result["standalone_requests"][0]) is True
+
+
+def test_has_suggested_merge_true_when_request_id_present_in_store_list():
+    """Cross-doc alignment fix: RequestSummary needs a cheap boolean so list views
+    (e.g. the Intake Inbox) can render the Merge affordance without fetching full
+    detail for every row -- docs/api-spec.md §1.3, docs/data-model.md §4."""
+    store = InMemoryStore()
+    r = make_request(store, "r_x", RequestStatus.STANDALONE)
+    store.suggested_merges.append({"request_id": "r_x", "event_id": "evt_far", "distance_km": 1.9})
+
+    assert queue_service.has_suggested_merge(store, r) is True
+
+
+def test_has_suggested_merge_false_when_absent():
+    store = InMemoryStore()
+    r = make_request(store, "r_y", RequestStatus.STANDALONE)
+
+    assert queue_service.has_suggested_merge(store, r) is False
+
+
+def test_has_suggested_merge_only_matches_its_own_request_id():
+    store = InMemoryStore()
+    r = make_request(store, "r_z", RequestStatus.STANDALONE)
+    store.suggested_merges.append({"request_id": "some_other_request", "event_id": "evt_far", "distance_km": 2.1})
+
+    assert queue_service.has_suggested_merge(store, r) is False

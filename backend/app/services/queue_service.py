@@ -27,6 +27,14 @@ def is_device_flagged(store: InMemoryStore, request: Request) -> bool:
     return bool(device and device.device_flag)
 
 
+def has_suggested_merge(store: InMemoryStore, request: Request) -> bool:
+    """FR-205b, cross-doc alignment fix: list views (RequestSummary) need a cheap
+    boolean to know whether to render the Merge affordance at all -- the full
+    distance_km/target details only come from the per-request detail endpoint,
+    fetched on click. See docs/api-spec.md §1.3 and docs/data-model.md §4."""
+    return any(sm.get("request_id") == request.id for sm in store.suggested_merges)
+
+
 def intake_inbox(store: InMemoryStore) -> dict:
     """FR-401: every candidate Event + every unverified standalone request."""
     events = [e for e in store.events.values() if e.status == EventStatus.CANDIDATE]

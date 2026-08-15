@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from app.models.domain import CoordinatorAction, Event, Request
-from app.services.queue_service import is_device_flagged, resolve_members
+from app.services.queue_service import has_suggested_merge, is_device_flagged, resolve_members
 from app.store.memory_store import InMemoryStore
 
 
@@ -35,6 +35,7 @@ def request_summary_json(store: InMemoryStore, r: Request) -> dict:
         "verified": r.verified,
         "event_id": r.event_id,
         "device_flagged": is_device_flagged(store, r),
+        "has_suggested_merge": has_suggested_merge(store, r),
     }
 
 

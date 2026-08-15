@@ -1,6 +1,6 @@
 # Data Model Specification — Aid Request Triage & Trust Tool
 
-Version 0.3 · Implements `docs/spec.md` v0.3 §6 and `docs/design.md` v0.3 §3 (post 6-document alignment pass — see §7 — and an 8-document pass adding `docs/ui-spec.md`, which surfaced a missing `quarantined → rejected` transition; fixed here alongside `docs/spec.md`/`docs/api-spec.md`/`docs/design.md`). This document is the authoritative field-by-field schema — types, constraints, defaults, relationships, and state machines — that `docs/api-spec.md`'s request/response bodies and `docs/design.md`'s pseudocode both serialize to/from.
+Version 0.4 · Implements `docs/spec.md` v0.3 §6 and `docs/design.md` v0.5 §3 (post 6-document alignment pass — see §7 — an 8-document pass adding `docs/ui-spec.md`, which surfaced a missing `quarantined → rejected` transition, and a post-implementation fix adding `Request.has_suggested_merge`, §4, after the frontend build surfaced that `docs/ui-spec.md`'s list-view Merge affordance had no field to drive it). This document is the authoritative field-by-field schema — types, constraints, defaults, relationships, and state machines — that `docs/api-spec.md`'s request/response bodies and `docs/design.md`'s pseudocode both serialize to/from.
 
 ## 1. Storage model
 
@@ -180,6 +180,7 @@ Kept out of the schema deliberately — storing them would create a second sourc
 | `Event.distinct_device_count` | `len({r.device_fingerprint_id for r in members})` | FR-401/403 sort, secondary key |
 | `Event.max_urgency_score` | `max(r.urgency_score for r in members if not None)` | FR-401/403 sort, primary key |
 | `Request.device_flagged` | `DeviceFingerprint(device_fingerprint_id).device_flag` | Every API response; FR-309 |
+| `Request.has_suggested_merge` | `any(sm.request_id == this.id for sm in store.suggested_merges)` | List-view responses (`RequestSummary`, `api-spec.md` §1.3); drives the Merge affordance in `docs/ui-spec.md` §5.1/§5.2 without requiring a per-row detail fetch just to know whether to show it |
 | Sort key (Event or standalone Request) | `(max_urgency_score, distinct_device_count)`, tuple-descending | FR-401, FR-403 (see `docs/design.md` §4.3) |
 
 **4.1 Centroid note**: `representative_location` is recomputed only from `member_request_ids`, never `pending_member_request_ids` — a pending addition doesn't get to shift where the Event "is" until a coordinator actually approves it (`approve_pending` triggers a recompute at promotion time, per `docs/design.md` §4.2b).

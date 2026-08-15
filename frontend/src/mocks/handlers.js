@@ -27,6 +27,7 @@ function makeRequestSummary(overrides = {}) {
     verified: false,
     event_id: 'evt_d4e5f6',
     device_flagged: false,
+    has_suggested_merge: false,
     ...overrides,
   }
 }

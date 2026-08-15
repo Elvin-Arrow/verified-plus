@@ -134,16 +134,18 @@ Read-only. No action buttons anywhere on this screen — that's the point of a t
 
 ## 9. Severity color encoding
 
-| `urgency_score` | Color | Never relies on color alone |
-|---|---|---|
-| 5 | Red | Always paired with the numeral itself (`🔴 5`), not a bare color swatch — colorblind-safe by construction, not by a separate accessibility pass bolted on after. |
-| 4 | Orange | " |
-| 3 | Yellow | " |
-| 2 | Blue | " |
-| 1 | Gray | " |
-| `null` (pending/unavailable) | Amber, distinct pattern (hatched/striped background, not just a different hue) | Deliberately NOT on the 1–5 red-to-gray scale — a pending score must never be visually confusable with "urgency 2" or any other real score, since it isn't one (`docs/data-model.md` §2.1's distinction). |
+| `urgency_score` | Color | M3 color role (`frontend/src/theme/tokens.css`) | Never relies on color alone |
+|---|---|---|---|
+| 5 | Red | `--md-sys-color-error` / `--md-sys-color-on-error` (`#ba1a1a` light / `#ffb4ab` dark) — M3's own error role, not a custom hue, since severity 5 *is* this app's one true alarm state | Always paired with the numeral itself (`🔴 5`), not a bare color swatch — colorblind-safe by construction, not by a separate accessibility pass bolted on after. |
+| 4 | Orange | `--md-ext-color-sev4` / `--md-ext-color-on-sev4` (`#8a4b00` light / `#ffb787` dark) — a custom domain-extension tonal pair, since M3's 3 accents + error don't cover a 5-tier severity scale on their own | " |
+| 3 | Yellow | `--md-sys-color-tertiary` / `--md-sys-color-on-tertiary` (`#715573` light / `#ddbcdd` dark) | " |
+| 2 | Blue | `--md-sys-color-secondary` / `--md-sys-color-on-secondary` (`#565f71` light / `#bec6dc` dark) | " |
+| 1 | Gray | `--md-ext-color-sev1` / `--md-ext-color-on-sev1` (`#44474f` light / `#c4c6d0` dark) — custom neutral pair, distinct from generic on-surface-variant so it still reads as "a severity tier," not "unstyled text" | " |
+| `null` (pending/unavailable) | Amber, distinct pattern (hatched/striped background, not just a different hue) | `--md-ext-color-sev-pending` / `--md-ext-color-sev-pending-stripe` (`#7a5900` / `#fff2c6` light) — a custom pair, deliberately not reused from any of the 1–5 tiers above | Deliberately NOT on the 1–5 red-to-gray scale — a pending score must never be visually confusable with "urgency 2" or any other real score, since it isn't one (`docs/data-model.md` §2.1's distinction). |
 
 Device-flag scrutiny marker (§8, Archive only, per FR-309): a small outlined icon, not a color fill — reserving red/orange for urgency exclusively avoids a flagged-but-low-urgency item looking more alarming at a glance than it is.
+
+*(M3 token column added as part of the FE-17 restyle pass, GitHub issue #45 — see `frontend/src/theme/tokens.css` for the full token layer, including dark-scheme values, and the M3 type/shape/elevation scales applied alongside these color roles.)*
 
 ## 10. Request detail view (FR-506, FR-602, FR-603)
 

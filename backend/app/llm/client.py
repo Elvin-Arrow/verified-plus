@@ -50,7 +50,7 @@ class LLMClient(Protocol):
     def embed(self, text: str) -> list[float]:
         ...
 
-    def complete(self, prompt: str) -> LLMCompletionResult:
+    def complete(self, prompt: str, key: str | None = None) -> LLMCompletionResult:
         ...
 
 
@@ -86,7 +86,7 @@ class HostedLLMClient:
         except Exception as exc:  # noqa: BLE001 — any failure maps to one error type (NFR-103)
             raise EmbeddingError(str(exc)) from exc
 
-    def complete(self, prompt: str) -> LLMCompletionResult:
+    def complete(self, prompt: str, key: str | None = None) -> LLMCompletionResult:
         if not self.api_key:
             raise LLMTimeoutError("no LLM_API_KEY configured — cannot call a live chat model")
         try:

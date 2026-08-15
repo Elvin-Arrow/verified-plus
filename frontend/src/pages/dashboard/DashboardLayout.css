@@ -1,0 +1,29 @@
+.dashboard-tabbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #d1d5db;
+  padding: 0 1rem;
+}
+
+.dashboard-tabs {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.dashboard-tab {
+  padding: 0.75rem 0.25rem;
+  text-decoration: none;
+  color: #4b5563;
+  border-bottom: 3px solid transparent;
+  font-weight: 600;
+}
+
+.dashboard-tab[aria-current='page'] {
+  color: #111827;
+  border-bottom-color: #2563eb;
+}
+
+.dashboard-content {
+  padding: 1rem;
+}

@@ -30,6 +30,6 @@ describe('App routing shell', () => {
         <App />
       </MemoryRouter>
     )
-    expect(screen.getByText(/intake & verification inbox/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /intake & verification/i })).toHaveClass('dashboard-tab')
   })
 })

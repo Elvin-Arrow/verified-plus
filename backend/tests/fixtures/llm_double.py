@@ -8,22 +8,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.llm.client import EmbeddingError, LLMCompletionResult, LLMTimeoutError
 from app.models.domain import MatchResult
 
-
-class LLMTimeoutError(Exception):
-    """Raised by the double (and the real client) on a simulated/actual call failure."""
-
-
-class EmbeddingError(Exception):
-    """Raised by the double (and the real client) on a simulated/actual embedding failure."""
-
-
-@dataclass
-class LLMCompletionResult:
-    urgency_score: int
-    urgency_reasoning: str
-    matches: list[MatchResult] = field(default_factory=list)
+__all__ = [
+    "EmbeddingError",
+    "LLMTimeoutError",
+    "LLMCompletionResult",
+    "ScriptedResponse",
+    "FakeLLMClient",
+]
 
 
 @dataclass

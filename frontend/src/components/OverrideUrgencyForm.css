@@ -1,0 +1,35 @@
+/* Inline M3 form surface — a low-elevation container (not a modal dialog,
+   since this opens inline in the detail view flow per docs/ui-spec.md §10). */
+.override-urgency-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 16px;
+  margin: 8px 0;
+}
+
+.override-urgency-form fieldset {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.override-urgency-form label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--md-sys-typescale-label-large-font);
+}
+
+.override-urgency-form textarea {
+  width: 100%;
+  min-height: 4rem;
+  resize: vertical;
+}
+
+.override-urgency-form-actions {
+  display: flex;
+  gap: 8px;
+}

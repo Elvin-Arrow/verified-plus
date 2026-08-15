@@ -1,21 +1,26 @@
+/* Mobile-first per docs/ui-spec.md §2 — a phone in the field, not a desk. */
 .intake-form {
   max-width: 28rem;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 12px;
 }
 
 .tap-to-place-map {
   width: 100%;
   height: 200px;
-  background: #e5e7eb;
-  border-radius: 0.5rem;
+  background: var(--md-sys-color-surface-variant);
+  border-radius: var(--md-sys-shape-corner-large);
   cursor: crosshair;
 }
 
 .field-error {
-  color: #b91c1c;
-  font-size: 0.9rem;
+  color: var(--md-sys-color-error);
+  font: var(--md-sys-typescale-body-small-font);
+}
+
+.intake-form button[type='submit'] {
+  margin-top: 8px;
 }

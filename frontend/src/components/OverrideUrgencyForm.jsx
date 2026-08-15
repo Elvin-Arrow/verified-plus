@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import './OverrideUrgencyForm.css'
 
 /**
  * docs/ui-spec.md §10: "Override Urgency" (labeled "Set Urgency" when
@@ -15,6 +16,7 @@ export default function OverrideUrgencyForm({ currentScore, onSubmit, onCancel }
 
   return (
     <form
+      className="override-urgency-form"
       onSubmit={(e) => {
         e.preventDefault()
         if (!canSubmit) return
@@ -41,14 +43,16 @@ export default function OverrideUrgencyForm({ currentScore, onSubmit, onCancel }
         onChange={(e) => setReason(e.target.value)}
         placeholder="Why? (helps the system calibrate on similar requests)"
       />
-      <button type="submit" disabled={!canSubmit}>
-        Submit
-      </button>
-      {onCancel && (
-        <button type="button" onClick={onCancel}>
-          Cancel
+      <div className="override-urgency-form-actions">
+        <button type="submit" disabled={!canSubmit}>
+          Submit
         </button>
-      )}
+        {onCancel && (
+          <button type="button" className="btn-text" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
   )
 }

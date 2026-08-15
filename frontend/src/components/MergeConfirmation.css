@@ -1,0 +1,40 @@
+/* M3 dialog pattern: surface-container-high, shape-extra-large corners,
+   elevation-3, headline-small-ish title, right-aligned actions row. */
+.merge-confirmation-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 32%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.merge-confirmation {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  box-shadow: var(--md-sys-elevation-3);
+  padding: 24px;
+  max-width: 28rem;
+  width: calc(100% - 32px);
+}
+
+.merge-confirmation p:first-child {
+  font: var(--md-sys-typescale-title-medium-font);
+}
+
+.merge-confirmation-other-side {
+  background: var(--md-sys-color-surface-container);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 12px;
+  font: var(--md-sys-typescale-body-medium-font);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.merge-confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}

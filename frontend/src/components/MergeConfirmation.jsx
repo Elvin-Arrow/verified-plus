@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getEventDetail, getRequestDetail } from '../api/client.js'
+import './MergeConfirmation.css'
 
 /**
  * docs/ui-spec.md §5.1/§10: clicking a Merge affordance opens a
@@ -29,15 +30,19 @@ export default function MergeConfirmation({ suggestedMerge, onConfirm, onCancel 
   }, [suggestedMerge])
 
   return (
-    <div role="dialog" aria-label="Confirm merge">
-      <p>Merge with the {suggestedMerge.target_event_id ? 'event' : 'request'} {suggestedMerge.distance_km}km away?</p>
-      {otherSideText != null && <p>{otherSideText}</p>}
-      <button type="button" onClick={onConfirm}>
-        Confirm
-      </button>
-      <button type="button" onClick={onCancel}>
-        Cancel
-      </button>
+    <div className="merge-confirmation-backdrop">
+      <div className="merge-confirmation" role="dialog" aria-label="Confirm merge">
+        <p>Merge with the {suggestedMerge.target_event_id ? 'event' : 'request'} {suggestedMerge.distance_km}km away?</p>
+        {otherSideText != null && <p className="merge-confirmation-other-side">{otherSideText}</p>}
+        <div className="merge-confirmation-actions">
+          <button type="button" className="btn-text" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm}>
+            Confirm
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

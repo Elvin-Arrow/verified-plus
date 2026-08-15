@@ -95,7 +95,7 @@ No stack was mandated; the following are assumptions, not requirements:
 - **FR-404** — *(Reserved — device-flag visual marking in the active queues was removed by FR-308's quarantine design; flagged devices no longer appear in Dispatch Queue at all once flagged.)*
 - **FR-405** — Both queues SHALL update within a bounded time (see NFR-101) after any new request is submitted or any coordinator action is taken, without requiring a manual page reload.
 - **FR-406** — The system SHALL provide an **Archive / Resolved view** listing all requests/Events in a terminal state (`dispatched`, `rejected`), so the active queues stay uncluttered while remaining auditable (FR-309, FR-601).
-- **FR-407** — The system SHALL provide a separate **Quarantine Inbox** listing all requests with `status = quarantined`. It SHALL support a bulk **"Reject All"** action (per device group) and an individual **"Rescue"** action that moves a request back into the normal Intake & Verification Inbox flow (for cases where a shared/legitimate device was caught behind another user's flag).
+- **FR-407** — The system SHALL provide a separate **Quarantine Inbox** listing all requests with `status = quarantined`, grouped by device. It SHALL support a bulk **"Reject All"** action, scoped to one device group at a time (never the whole Quarantine Inbox in one action — consistent with FR-503's per-device scoping elsewhere), transitioning every currently-quarantined request from that device to `status = rejected` (terminal). This does NOT re-flag the device (it's already flagged — that's why its requests are quarantined) and is logged as a distinct action from FR-503's `reject_flag_device` (see §6, `reject_quarantined_group`), since no new fraud confirmation is happening here, just disposal of already-quarantined items. It SHALL also support an individual **"Rescue"** action that moves a single request back into the normal Intake & Verification Inbox flow (for cases where a shared/legitimate device was caught behind another user's flag).
 
 ### 4.5 Incident Cards & coordinator actions (FR-5xx)
 
@@ -115,7 +115,7 @@ No stack was mandated; the following are assumptions, not requirements:
 ### 4.6 Feedback loop (FR-6xx)
 
 - **FR-601** — Every coordinator action that confirms, overrides, or rejects a system judgment (verify event, approve pending, reject & flag device, dismiss cluster, split out, rescue, verify/reject standalone, dispatch, override urgency) SHALL be recorded in an append-only action log with: actor, action type, target ID(s), timestamp.
-- **FR-602** — This action log SHALL be available in the request/Event detail view as a visible audit trail.
+- **FR-602** — This action log SHALL be available in both the request detail view AND a corresponding **Event detail view** (distinct read, not merely inferred from a member request's own log — an Event-level action like `verify_event`, `approve_pending`, `reject_flag_device`, or `dismiss_cluster` is logged against the Event's `id`, not any single member's, so a per-request detail view alone cannot show it) as a visible audit trail.
 - **FR-603 (Urgency override)** — A request's detail view SHALL support an **"Override Urgency"** action letting a coordinator set a corrected `urgency_score` (1–5) with an optional short reason, distinct from verify/reject/dispatch. This updates the request's `urgency_score` (re-triggering the sort in FR-401/FR-403) and is logged (`action_type: override_urgency`) with both the original and corrected value retained (see §6, `original_urgency_score`).
 - **FR-604 (In-context adaptive calibration)** — The system SHALL maintain a rolling buffer of the most recent N (default N=5) urgency overrides (FR-603) and the most recent N false-positive duplicate corrections (implied by Split Out, FR-504, and Dismiss Cluster, FR-507). Each subsequent LLM call for urgency scoring (FR-301) or duplicate/match judgment (FR-204) SHALL include these recent corrections as few-shot examples in its prompt, so the system's behavior visibly adapts within a session — e.g. "a coordinator recently corrected a similarly-phrased request from urgency 2 to urgency 5 with reason: 'implies trapped, not just discomfort' — apply the same reasoning here."
 - **FR-605 (Scope boundary on FR-604)** — This adaptive mechanism is prompt-level (in-context few-shot calibration) only — no model weights are trained or fine-tuned, and it SHALL NOT be described to judges as such. The rolling buffer is in-memory and SHALL be cleared by a full reset (FR-702), same as other in-memory state.
@@ -190,7 +190,7 @@ CoordinatorAction (audit log, FR-601) {
     verify_event, approve_pending, approve_dispatch,
     reject_flag_device, dismiss_cluster, split_out, rescue_from_quarantine,
     verify_standalone, reject_standalone, dispatch_standalone,
-    override_urgency, manual_merge
+    override_urgency, manual_merge, reject_quarantined_group
   }
   target_id: string
   timestamp: datetime
@@ -220,8 +220,10 @@ Note: `event_confidence` from the v0.1 draft has been removed as a variable enti
 | `POST` | `/api/requests/{id}/merge` | Manually merge a geometrically-excluded request into its suggested Event (or bootstrap a new one) | FR-205c |
 | `GET` | `/api/quarantine` | List Quarantine Inbox | FR-407 |
 | `POST` | `/api/requests/{id}/rescue` | Move a quarantined request back to the Intake Inbox | FR-407, FR-504b |
+| `POST` | `/api/quarantine/{device_id}/reject-all` | Bulk-reject every currently-quarantined request from one device (does not re-flag; device is already flagged) | FR-407 |
 | `GET` | `/api/archive` | List resolved/terminal items | FR-406 |
 | `GET` | `/api/requests/{id}` | Full detail incl. reasoning + action history | FR-506, FR-602 |
+| `GET` | `/api/events/{id}` | Full Event detail incl. members, pending members, and the Event's own action history | FR-602 |
 | `POST` | `/api/requests/{id}/override-urgency` | Coordinator sets a corrected urgency_score | FR-603, FR-604 |
 
 ## 8. Out of scope

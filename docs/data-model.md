@@ -1,6 +1,6 @@
 # Data Model Specification — Aid Request Triage & Trust Tool
 
-Version 0.2 · Implements `docs/spec.md` v0.3 §6 and `docs/design.md` v0.3 §3 (post 6-document alignment pass — see §7). This document is the authoritative field-by-field schema — types, constraints, defaults, relationships, and state machines — that `docs/api-spec.md`'s request/response bodies and `docs/design.md`'s pseudocode both serialize to/from.
+Version 0.3 · Implements `docs/spec.md` v0.3 §6 and `docs/design.md` v0.3 §3 (post 6-document alignment pass — see §7 — and an 8-document pass adding `docs/ui-spec.md`, which surfaced a missing `quarantined → rejected` transition; fixed here alongside `docs/spec.md`/`docs/api-spec.md`/`docs/design.md`). This document is the authoritative field-by-field schema — types, constraints, defaults, relationships, and state machines — that `docs/api-spec.md`'s request/response bodies and `docs/design.md`'s pseudocode both serialize to/from.
 
 ## 1. Storage model
 
@@ -95,6 +95,7 @@ ActionType:
   verify_event | approve_pending | approve_dispatch | reject_flag_device
   | dismiss_cluster | split_out | rescue_from_quarantine | verify_standalone
   | reject_standalone | dispatch_standalone | override_urgency | manual_merge
+  | reject_quarantined_group
 ```
 
 ### 2.7 Session-scoped, non-entity state
@@ -136,6 +137,8 @@ Not part of any entity's schema, but part of the store (`docs/design.md` §3) an
                                         or quarantined (if swept, FR-308(b))
   ANY non-terminal status ──(device gets flagged, FR-308(b))──▶ quarantined
   quarantined ──rescue (FR-407)──▶ standalone (re-enters matching, FR-202-206 rerun)
+  quarantined ──reject_quarantined_group (FR-407, bulk per device)──▶ rejected (terminal;
+      does NOT re-set device_flag — the device is already flagged, that's why it's here)
   standalone ──verify_standalone (FR-505)──▶ dispatched   (atomic, see api-spec.md §5)
   standalone (verified=true, via FR-504b) ──dispatch_standalone (FR-505b)──▶ dispatched
 ```

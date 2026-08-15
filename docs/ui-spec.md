@@ -1,6 +1,6 @@
 # UI Specification — Aid Request Triage & Trust Tool
 
-Version 0.1 · Implements `docs/design.md` v0.3 §6 (frontend design) and consumes `docs/api-spec.md` v0.1 end-to-end. This document is the authoritative screen-by-screen, component-by-component UI contract — layout, states, visual encoding, and exactly which API call each interaction fires — that `docs/design.md`'s frontend component tree sketch and `docs/testing-spec.md`'s acceptance scenarios both point back to.
+Version 0.2 · Implements `docs/design.md` v0.4 §6 (frontend design) and consumes `docs/api-spec.md` v0.2 end-to-end. This document is the authoritative screen-by-screen, component-by-component UI contract — layout, states, visual encoding, and exactly which API call each interaction fires — that `docs/design.md`'s frontend component tree sketch and `docs/testing-spec.md`'s acceptance scenarios both point back to. (Hardened via an 8-document Gemini alignment pass — see §15.)
 
 ## 1. Design principles
 
@@ -70,7 +70,7 @@ Two-section layout, matching `docs/api-spec.md` §3's response shape exactly:
 │  ┌────────────────────────────────────────────────────────┐   │     visually distinct (amber
 │  │ [pending icon] "flooding hit our well..." — urgency:    │   │     background, not just a
 │  │  pending/unavailable — device: dev_x1y2                  │   │     label) so it can never be
-│  │  [Retry evaluation]  [Override Urgency manually]         │   │     mistaken for "just low
+│  │  [Verify & Dispatch]  [Reject]  [Set Urgency]             │   │     mistaken for "just low
 │  └────────────────────────────────────────────────────────┘   │     priority" (NFR-103's point)
 │                                                                  │
 │  SORTED (urgency, then corroboration)                          │
@@ -86,12 +86,17 @@ Two-section layout, matching `docs/api-spec.md` §3's response shape exactly:
 └──────────────────────────────────────────────────────────────┘
 ```
 
+### 5.0 Needs Manual Triage item
+
+A `null`-urgency item is always a `standalone` request (`docs/design.md` §4.1: an LLM/embedding failure short-circuits *before* `assign()` ever runs, so a failed request can never have become an Event member — it structurally cannot appear as anything other than a standalone row here). Because of that, it gets the **same actions as any other standalone row** (§5.2) — **"Verify & Dispatch"** and **"Reject"** both work with no urgency score present, since neither action depends on `urgency_score` being non-null. There is no "Retry evaluation" affordance: `docs/architecture.md` §5 explicitly rules out automatic retry as a strategy (it would blow NFR-101's latency budget unpredictably), so this item's *only* automated path forward is a coordinator's own decision — a **"Set Urgency"** action is offered too (opens the same form as §10's Override Urgency, but see the note there on its default value for this specific case), letting a coordinator assign a score before deciding, without requiring it as a precondition for Verify/Reject. This item satisfies principle 4 (no dead ends) precisely because none of its three actions are gated on a score existing.
+
 ### 5.1 Incident Card (candidate)
 
 - Header: severity dot (§9 color table) at the card's `max_urgency_score`, title (first member's location/need summary, not a coordinator-authored label — nothing in the data model provides one), "N corroborating reports · M devices" badge.
 - Collapsed by default; **"Verify Event & Approve All"** is available collapsed (principle 1 — the common case never requires expanding).
 - **Expanded**: members grouped by device fingerprint (FR-503), each device-group showing its member requests and a **"Reject & Flag Device"** button scoped to that group. A single **"✕ Split Out"** per individual request. A card-level **"Dismiss Cluster"** button, visually separated from the per-device actions (different color/position) so it's never confused with a per-device reject — Dismiss Cluster's whole purpose (FR-507) is "the grouping was wrong, not the people," so it must not sit where a coordinator's eye expects a fraud action.
-- If any member has an entry in `suggested_merges` (`docs/api-spec.md` §7), a **"⚠ Possible related event N km away — Merge?"** affordance appears on that member's row inside the expanded view (never on the collapsed card, since it's a per-request signal, not a per-Event one) — clicking it opens a confirmation showing both sides before calling `POST /api/requests/{id}/merge`.
+- If any member has an entry in `suggested_merges` (`docs/api-spec.md` §7), a **"⚠ Possible related event N km away — Merge?"** affordance appears on that member's row inside the expanded view (never on the collapsed card, since it's a per-request signal, not a per-Event one) — clicking it opens a confirmation showing both sides before calling `POST /api/requests/{id}/merge`. When the suggested target is an Event (not another standalone request), the confirmation's "other side" is populated from `GET /api/events/{id}` (`docs/api-spec.md` §7) — the same endpoint used for the Event log below, not a second bespoke fetch.
+- Expanded view footer: an **"Event log"** link opens the same detail layout as §10, sourced from `GET /api/events/{id}` instead of the per-request endpoint — this is where `verify_event`/`approve_pending`/`reject_flag_device`/`dismiss_cluster` actions actually show up (FR-602 requires an Event-level log distinct from any single member's own history, since these actions are logged against the Event's `id`, not a member's).
 
 ### 5.2 Standalone row
 
@@ -121,7 +126,7 @@ Grouped by device, not a flat list — matching `docs/api-spec.md` §3's `groups
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Each request within a device group gets its own **"Rescue"** action (individual, since a shared device — the entire reason this tier exists — may hold one legitimate request among several fraudulent ones); **"Reject All"** is device-group-scoped like everywhere else in this UI, never a single blanket action across the whole tab.
+Each request within a device group gets its own **"Rescue"** action (individual, since a shared device — the entire reason this tier exists — may hold one legitimate request among several fraudulent ones); **"Reject All"** is device-group-scoped like everywhere else in this UI, never a single blanket action across the whole tab, and calls `POST /api/quarantine/{device_id}/reject-all` (`docs/api-spec.md` §5) — distinct from the Incident Card's "Reject & Flag Device" (§5.1): this device is already flagged, so this action only disposes of its held requests, it doesn't re-flag anything.
 
 ## 8. Archive (FR-406)
 
@@ -165,7 +170,7 @@ Opened from any "details"/expand affordance across §5–8. Renders `GET /api/re
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**"Override Urgency"** opens a small inline form: a 1–5 selector (defaulting to the current score, never blank) and an optional reason field, with the reason field's placeholder text making its downstream use explicit — "Why? (helps the system calibrate on similar requests)" — so a coordinator understands FR-604's calibration effect rather than treating it as a discarded audit comment. Submits to `POST /api/requests/{id}/override-urgency`.
+**"Override Urgency"** (labeled "Set Urgency" per §5.0 when opened on a `null`-urgency item — same form, same endpoint, different label since there's nothing being "overridden" yet) opens a small inline form: a 1–5 selector and an optional reason field, with the reason field's placeholder text making its downstream use explicit — "Why? (helps the system calibrate on similar requests)" — so a coordinator understands FR-604's calibration effect rather than treating it as a discarded audit comment. **Default selector value**: the current `urgency_score` when one exists; when it's `null` (the §5.0 case), the selector opens with **no option pre-selected** and the form's submit action stays disabled until a coordinator explicitly picks one — "never blank" only applies once a real score exists to default to; a `null` current score must never render as a phantom pre-selected value on a 1–5 control. Submits to `POST /api/requests/{id}/override-urgency`.
 
 `match_reasons` renders every candidate the LLM evaluated, not only the ones judged a match — a `✗` no-match entry with its reason is what makes an incorrect non-match debuggable by a coordinator, not just a correct match.
 
@@ -208,3 +213,13 @@ No default pre-selected for Mode (`docs/spec.md` FR-702: "an explicit, documente
 | §11 Loading/error states | `docs/api-spec.md` §1.1–1.2; `docs/architecture.md` §7.1 |
 | §12 Seed/Replay | `docs/spec.md` FR-701–702, FR-208; `docs/api-spec.md` §6 |
 | §13 Accessibility | NFR-401 |
+
+## 15. Change log — 8-document alignment pass (v0.1 → v0.2)
+
+A Gemini review checking this document against all seven prior project documents found:
+
+1. **A self-contradiction**: §10 (as originally written) had the Override Urgency selector "defaulting to the current score, never blank" while §5 described Needs Manual Triage items as having a `null` score — impossible to satisfy both. Fixed: the selector defaults to the current score only when one exists; for a `null` current score it opens with nothing pre-selected and Submit stays disabled until a coordinator picks one.
+2. **A fictional `[Retry evaluation]` button** (§5) with no backing endpoint — `docs/architecture.md` §5 explicitly rules out automatic retry. Removed; replaced with the correct fix, which turned out to be simpler: since a `null`-urgency item is always `standalone` (never an Event member — an LLM/embedding failure short-circuits before clustering ever runs), it just gets the same Verify/Reject actions as any other standalone row, with urgency-setting offered but never required. New §5.0 documents this explicitly.
+3. **No `Reject` affordance on triage items** — a real dead-end (violating this document's own principle 4) fixed by the same change as #2.
+4. **Two missing backend endpoints**, not just missing UI wiring: `POST /api/quarantine/{device_id}/reject-all` (FR-407 already required this bulk action in `docs/spec.md`, but no endpoint existed anywhere until this pass) and `GET /api/events/{id}` (FR-602 requires an Event-level detail/action-log view, but only a per-request endpoint existed). Both added to `docs/spec.md`, `docs/api-spec.md`, and `docs/design.md`, and wired into this document (§5.1's Event log link, §7's Reject All).
+5. **The Merge confirmation's "other side" had no data source** when the suggested target was an Event rather than another request — resolved by the same `GET /api/events/{id}` addition.

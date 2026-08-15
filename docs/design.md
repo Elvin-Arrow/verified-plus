@@ -1,6 +1,6 @@
 # Software Design Specification — Aid Request Triage & Trust Tool
 
-Version 0.3 · Implements `docs/spec.md` v0.3 (post rubric, sanity-pass, and cross-document alignment pass — see spec.md §11), further hardened by a 6-document alignment pass covering the new `docs/api-spec.md`/`docs/data-model.md`/`docs/architecture.md` — see `docs/data-model.md` §7 for that pass's change log. Every design decision below is traced to the requirement ID(s) it satisfies — search for "FR-"/"NFR-" to cross-reference.
+Version 0.4 · Implements `docs/spec.md` v0.3 (post rubric, sanity-pass, and cross-document alignment pass — see spec.md §11), further hardened by a 6-document alignment pass covering `docs/api-spec.md`/`docs/data-model.md`/`docs/architecture.md` (see `docs/data-model.md` §7) and an 8-document pass adding `docs/ui-spec.md`, which surfaced the missing `reject_all_quarantined` action (added, §4.5b) and the missing Event-detail read path (`GET /api/events/{id}`, `docs/api-spec.md` §7). Every design decision below is traced to the requirement ID(s) it satisfies — search for "FR-"/"NFR-" to cross-reference.
 
 ## 1. Architecture overview
 
@@ -57,8 +57,9 @@ backend/
     routers/
       requests.py               # POST /api/requests, GET /api/requests/{id}, override-urgency, split-out,
                                  #   verify/reject/dispatch-standalone, rescue, merge (FR-205c)
-      events.py                 # verify, approve-pending, dispatch, reject-and-flag, dismiss
+      events.py                 # verify, approve-pending, dispatch, reject-and-flag, dismiss, GET /api/events/{id}
       queues.py                 # GET intake-inbox, dispatch-queue, quarantine, archive
+      quarantine.py              # POST /api/quarantine/{device_id}/reject-all
       seed.py                   # POST /api/seed/replay
   tests/
     test_geo.py                 # haversine correctness, geofence boundary cases
@@ -477,6 +478,19 @@ def rescue(request_id: str, actor: str) -> None:                              # 
                                  # place; one swept mid-flight (FR-308(b)) may have missed matches that
                                  # arrived while held — re-evaluating fresh is simpler and safer than trying
                                  # to reconstruct whatever pre-quarantine state it would otherwise have had
+
+
+def reject_all_quarantined(device_id: str, actor: str) -> list[str]:          # FR-407, bulk "Reject All"
+    rejected_ids = []
+    for r in store.requests.values():
+        if r.device_fingerprint_id == device_id and r.status == RequestStatus.QUARANTINED:
+            r.status = RequestStatus.REJECTED   # terminal — no event_id to clear, quarantined
+                                                  # requests were already detached during the sweep (§4.4)
+            rejected_ids.append(r.id)
+    # deliberately does NOT touch device.device_flag — it's already True, that's why these
+    # requests were quarantined in the first place; this is disposal, not a fraud confirmation
+    log_action(actor, "reject_quarantined_group", device_id, note=f"{len(rejected_ids)} requests")
+    return rejected_ids
 ```
 
 ### 4.6 Dismiss Cluster (FR-507)

@@ -1,6 +1,6 @@
 # API Specification — Aid Request Triage & Trust Tool
 
-Version 0.1 · Implements `docs/spec.md` v0.3 §7 and `docs/design.md` v0.3 §2/§4. This document is the authoritative contract for every HTTP endpoint — request/response shapes, status codes, and error behavior — that `docs/spec.md`'s illustrative API table and `docs/design.md`'s router pseudocode both point back to. `match_reasons` and `suggested_merges[].distance_km` (§7) were the two fields this spec anticipated correctly before `docs/design.md`/`docs/data-model.md` had matching storage for them — see `docs/data-model.md` §7 for that fix.
+Version 0.2 · Implements `docs/spec.md` v0.3 §7 and `docs/design.md` v0.4 §2/§4. This document is the authoritative contract for every HTTP endpoint — request/response shapes, status codes, and error behavior — that `docs/spec.md`'s illustrative API table and `docs/design.md`'s router pseudocode both point back to. `match_reasons` and `suggested_merges[].distance_km` (§7) were the two fields this spec anticipated correctly before `docs/design.md`/`docs/data-model.md` had matching storage for them — see `docs/data-model.md` §7 for that fix. `POST /api/quarantine/{device_id}/reject-all` and `GET /api/events/{id}` (§5/§7) were added in the subsequent 8-document pass that added `docs/ui-spec.md` — both were UI affordances/FR-602 requirements with no endpoint anywhere until then.
 
 ## 1. Conventions
 
@@ -340,6 +340,20 @@ Move a quarantined request back into the Intake & Verification Inbox (FR-407, FR
 
 **Errors:** `404`; `409` if `status` isn't `quarantined`.
 
+### `POST /api/quarantine/{device_id}/reject-all`
+
+Bulk-reject every currently-quarantined request from one device (FR-407). Distinct from `/api/events/{id}/devices/{device_id}/reject-and-flag` (§4) — this endpoint does **not** set `device_flag` (it's already `true`, that's why these requests are quarantined) and applies to standalone quarantined requests, not an Incident Card's members.
+
+**Request body:** `{ "actor": "coordinator_1" }`
+
+**Response `200 OK`:**
+
+```json
+{ "device_fingerprint_id": "dev_x1y2", "rejected_request_ids": ["req_1", "req_2", "req_3"] }
+```
+
+**Errors:** `404` if the device has no currently-quarantined requests (an empty reject is treated as not-found, same convention as `merge`'s target validation in §5).
+
 ### `POST /api/requests/{request_id}/override-urgency`
 
 Coordinator sets a corrected `urgency_score` (FR-603, feeding FR-604's calibration buffer).
@@ -426,6 +440,33 @@ Full detail: reasoning, action history, suggested merges (FR-506, FR-602).
 
 **Errors:** `404 NOT_FOUND`.
 
+### `GET /api/events/{event_id}`
+
+Full Event detail: members, pending members, and the Event's own action history (FR-602). This is the second half of FR-602's "request/Event detail view" requirement — an Event-level action (`verify_event`, `approve_pending`, `reject_flag_device`, `dismiss_cluster`) is logged against the Event's `id`, not any single member's, so it's only visible here, not via any member's `GET /api/requests/{id}`. Also the data source for the Merge confirmation UI (`docs/ui-spec.md` §5.1/§10) when a `suggested_merges` entry's target is an Event rather than another standalone request.
+
+**Response `200 OK`:**
+
+```json
+{
+  "id": "evt_d4e5f6",
+  "status": "verified",
+  "representative_location": { "lat": 12.34, "lng": 56.78 },
+  "verified_by": "coordinator_1",
+  "verified_at": "2026-08-15T14:05:00Z",
+  "created_at": "2026-08-15T14:03:00Z",
+  "members": [ "...RequestSummary...": true ],
+  "pending_members": [ "...RequestSummary (status: pending_addition)...": true ],
+  "action_history": [
+    {
+      "id": "act_2", "actor": "coordinator_1", "action_type": "verify_event",
+      "target_id": "evt_d4e5f6", "timestamp": "2026-08-15T14:05:00Z", "note": null
+    }
+  ]
+}
+```
+
+**Errors:** `404 NOT_FOUND` — including for an Event that has since dissolved (its `id` is gone, not soft-deleted; see `docs/data-model.md` §3.2). A client holding a stale `event_id` across a poll interval should treat this the same as any other `404` — re-fetch the current queue view (`docs/ui-spec.md` §11's stale-view handling).
+
 ## 8. Endpoint index
 
 | Method | Path | Spec refs |
@@ -446,6 +487,8 @@ Full detail: reasoning, action history, suggested merges (FR-506, FR-602).
 | `POST` | `/api/requests/{id}/split-out` | FR-504, FR-504b |
 | `POST` | `/api/requests/{id}/merge` | FR-205c |
 | `POST` | `/api/requests/{id}/rescue` | FR-407, FR-504b |
+| `POST` | `/api/quarantine/{device_id}/reject-all` | FR-407 |
 | `POST` | `/api/requests/{id}/override-urgency` | FR-603, FR-604 |
 | `GET` | `/api/requests/{id}` | FR-506, FR-602 |
+| `GET` | `/api/events/{id}` | FR-602 |
 | `POST` | `/api/seed/replay` | FR-701–702, FR-208 |

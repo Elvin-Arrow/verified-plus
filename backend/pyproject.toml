@@ -1,0 +1,16 @@
+[tool.mutmut]
+# TI-04: mutation-testing scope per docs/testing-spec.md §5. Priority
+# modules only -- routers/ and llm/ are deliberately excluded (mostly
+# trivially-equivalent or untestable-without-a-live-LLM mutants).
+# First real run happens once BE-09/BE-14/BE-15 all exist; config is
+# written now so the tooling/threshold decision isn't deferred.
+paths_to_mutate = [
+    "app/services/clustering_service.py",
+    "app/services/device_service.py",
+    "app/services/queue_service.py",
+    "app/services/feedback_service.py",
+    "app/services/action_service.py",
+    "app/geo.py",
+    "app/sort.py",
+]
+tests_dir = ["tests/"]

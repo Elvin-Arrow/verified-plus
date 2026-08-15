@@ -12,7 +12,7 @@ describe('App routing shell', () => {
         <App />
       </MemoryRouter>
     )
-    expect(screen.getByText(/intake form/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/what do you need/i)).toBeInTheDocument()
   })
 
   it('redirects / to /intake', () => {
@@ -21,7 +21,7 @@ describe('App routing shell', () => {
         <App />
       </MemoryRouter>
     )
-    expect(screen.getByText(/intake form/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/what do you need/i)).toBeInTheDocument()
   })
 
   it('renders the dashboard shell and defaults to the intake inbox tab', () => {

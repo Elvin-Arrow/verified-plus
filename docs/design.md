@@ -111,12 +111,17 @@ class Request:
     original_urgency_score: int | None = None  # FR-603
     event_id: str | None = None
     status: RequestStatus = RequestStatus.STANDALONE
+    verified: bool = False                     # FR-504b/spec §6: orthogonal to status — set True the moment
+                                                # this specific request is individually approved (FR-304,
+                                                # FR-304b's promotion, or FR-505), independent of its Event's
+                                                # lifecycle; see §4.2b for exactly where it's set
     embedding: list[float] | None = None       # cached, not re-embedded on every comparison
 
 @dataclass
 class Event:
     id: str
     member_request_ids: list[str] = field(default_factory=list)
+    pending_member_request_ids: list[str] = field(default_factory=list)  # FR-304b; see §4.2
     status: EventStatus = EventStatus.CANDIDATE
     verified_by: str | None = None
     verified_at: datetime | None = None
@@ -223,8 +228,10 @@ def assign(request: Request, llm_matches: list[MatchResult]) -> None:
     if target.status in ("verified", "dispatched"):
         request.status = RequestStatus.PENDING_ADDITION        # FR-304b — no auto-inherit
         request.event_id = target.id
-        # NOT added to target.member_request_ids yet — pending members tracked separately
-        # until FR-502 "Approve All Pending" promotes them
+        target.pending_member_request_ids.append(request.id)   # tracked separately from active members
+        # NOT added to target.member_request_ids — pending members don't count toward FR-501's
+        # 2+ Incident Card threshold or FR-504b's dissolve check until FR-502 "Approve All Pending"
+        # promotes them (see §4.2b)
     else:  # candidate
         request.status = RequestStatus.IN_CANDIDATE_EVENT
         request.event_id = target.id
@@ -234,12 +241,42 @@ def assign(request: Request, llm_matches: list[MatchResult]) -> None:
     # never auto-merge two existing Events (FR-205 step 6) — no code path here does that
 ```
 
-Note on `pending_addition` bookkeeping: pending members are tracked on the `Event` as a separate list (`pending_member_request_ids`, added to the data model below) rather than mixed into `member_request_ids`, so `member_request_ids` always means "counts toward FR-501's 2+ threshold and FR-504b's dissolve check" without extra filtering at every read site.
+Pending members live in `Event.pending_member_request_ids` (§3), kept separate from `member_request_ids` so the latter always means "counts toward FR-501's 2+ threshold and FR-504b's dissolve check" without extra filtering at every read site.
+
+### 4.2b Where `verified` gets set (and where dissolution must account for pending members)
+
+`Request.verified` (§3) is set exactly at the moments a coordinator approves that specific request, never inferred from its Event:
 
 ```python
-# addendum to Event dataclass
-pending_member_request_ids: list[string] = field(default_factory=list)   # FR-304b
+def verify_event(event_id: str, actor: str) -> None:                       # FR-304, FR-502 "Verify Event & Approve All"
+    event = store.events[event_id]
+    event.status = EventStatus.VERIFIED
+    event.verified_by = actor; event.verified_at = now()
+    for rid in event.member_request_ids:                                   # only CURRENT members — FR-304
+        r = store.requests[rid]
+        r.status = RequestStatus.IN_VERIFIED_EVENT
+        r.verified = True
+    log_action(actor, "verify_event", event_id)
+
+def approve_pending(event_id: str, actor: str) -> None:                    # FR-304b, FR-502 "Approve All Pending"
+    event = store.events[event_id]
+    for rid in event.pending_member_request_ids:
+        r = store.requests[rid]
+        r.status = RequestStatus.IN_VERIFIED_EVENT
+        r.verified = True
+        event.member_request_ids.append(rid)                               # promoted: now counts for FR-501/504b
+    event.pending_member_request_ids.clear()
+    recompute_centroid(event)
+    log_action(actor, "approve_pending", event_id)
+
+def verify_standalone(request_id: str, actor: str) -> None:                # FR-505
+    r = store.requests[request_id]
+    r.status = RequestStatus.STANDALONE   # unchanged — was already standalone, no Event involved
+    r.verified = True                     # this is what actually moves it into the Dispatch Queue (FR-403)
+    log_action(actor, "verify_standalone", request_id)
 ```
+
+`maybe_dissolve_event` (§4.5) never *sets* `verified` — by design, it only clears `event_id`/resets `status`, and leaves each affected request's `verified` flag exactly as the functions above already set it, so a dissolved Event's sole surviving active member correctly keeps routing to whichever queue it earned its way into. The one thing §4.5 must additionally handle, which an earlier draft of this design missed: **`pending_addition` members are not exempt from dissolution.** If an Event is deleted (active membership drops to 0–1) while it still has entries in `pending_member_request_ids`, those requests' `event_id` would dangle unless they're explicitly reverted in the same pass — see the corrected §4.5 below.
 
 ### 4.3 Lexicographic sort (FR-401, FR-403)
 
@@ -289,22 +326,30 @@ Centralized in one function so every caller (Split Out, Reject & Flag, Rescue) g
 
 ```python
 def maybe_dissolve_event(event: Event) -> None:
-    if len(event.member_request_ids) == 1:
+    if len(event.member_request_ids) > 1:
+        return   # nothing to do — still a valid Incident Card per FR-501
+
+    # active membership is 0 or 1 — dissolve the Event entirely
+    if event.member_request_ids:
         sole = store.requests[event.member_request_ids[0]]
         sole.event_id = None
-        sole.status = RequestStatus.IN_VERIFIED_EVENT and RequestStatus.STANDALONE or RequestStatus.STANDALONE
-        # concretely: preserve verified-vs-unverified distinction:
-        sole.status = (RequestStatus.STANDALONE if event.status == EventStatus.CANDIDATE
-                        else RequestStatus.STANDALONE)  # standalone status is the same enum value either way;
-        # what differs is which QUEUE picks it up — FR-401 vs FR-403 — determined by verification_status,
-        # tracked via a separate `verified` bool on Request (see §6 addendum) since `standalone` alone
-        # is ambiguous between "never verified" and "was verified, event dissolved."
-        del store.events[event.id]
-    elif len(event.member_request_ids) == 0:
-        del store.events[event.id]
-```
+        sole.status = RequestStatus.STANDALONE
+        # sole.verified is deliberately left untouched here — verify_event/approve_pending
+        # (§4.2b) already set it correctly when this request was individually approved;
+        # dissolution never overrides that. It's what routes this standalone request to
+        # the Dispatch Queue (FR-403, verified=True) vs. the Intake Inbox (FR-401, verified=False).
 
-**Design note surfaced by writing this out**: spec.md's `RequestStatus.STANDALONE` conflates "never verified, belongs in Intake Inbox" with "was verified as part of an Event that has since dissolved, belongs in Dispatch Queue." FR-504b requires the latter to "keep whichever verification state it individually held." The clean fix is a `verified: bool` field on `Request`, orthogonal to `status`, so `standalone` + `verified=True` routes to the Dispatch Queue and `standalone` + `verified=False` routes to the Intake Inbox. This is a real (small) gap in spec.md worth flagging back to the requirements — see §7.
+    # any pending_addition members must also be reverted — their parent Event no longer
+    # exists, so leaving event_id pointing at a deleted Event would dangle. They were never
+    # approved, so verified stays False and they re-enter independent evaluation.
+    for rid in event.pending_member_request_ids:
+        pending = store.requests[rid]
+        pending.event_id = None
+        pending.status = RequestStatus.STANDALONE
+        pending.verified = False
+
+    del store.events[event.id]
+```
 
 ### 4.6 Dismiss Cluster (FR-507)
 
@@ -437,11 +482,12 @@ Lightweight: no Redux needed at this scope. Each view is a component that polls 
 
 FastAPI runs async by default; all store mutations go through `InMemoryStore`'s single `threading.Lock`, acquired synchronously around each mutating operation (§3). LLM/embedding calls happen *before* the lock is acquired (they're the slow part) so a single slow LLM call never blocks other requests' store reads — only the final, fast state-mutation is serialized. This keeps NFR-101 achievable even with several submissions landing close together.
 
-## 7. Gaps surfaced while writing this design (flagged back to spec.md)
+## 7. Gaps surfaced while writing this design (already folded into spec.md)
 
-Writing the design surfaced one requirement-level ambiguity that wasn't visible at the requirements-abstraction level:
+Writing the design surfaced two requirement/implementation-level gaps, both resolved here and in spec.md directly (not left as future recommendations):
 
-- **FR-504b's "keeps whichever verification state it individually held"** is unimplementable as written with `Request.status` alone, because `standalone` is used for both "never verified" (routes to Intake Inbox) and, after this design's analysis, would need to also mean "was verified, Event dissolved" (routes to Dispatch Queue) — one enum value, two different queue-routing meanings. §4.5 above resolves this by adding an orthogonal `verified: bool` field to `Request`, independent of `status`. This is a data-model addition, not a behavior change — FR-504b's *intent* is unaffected, only its literal implementation needed one more field than spec.md's §6 listed. Recommend folding `verified: bool` into spec.md §6 in the next spec revision.
+- **FR-504b's "keeps whichever verification state it individually held"** was unimplementable with `Request.status` alone, since `standalone` was used for both "never verified" (routes to Intake Inbox) and "was verified, Event dissolved" (routes to Dispatch Queue) — one enum value, two routing meanings. Resolved with an orthogonal `verified: bool` field on `Request` (§3), set only by the explicit approval actions in §4.2b and left untouched by dissolution (§4.5). spec.md §6/FR-403/FR-504b were updated to match.
+- **Dissolution didn't account for `pending_addition` members**: an Event with 1 active member and 2 pending members would previously be deleted outright, leaving the pending members' `event_id` dangling. §4.5 now explicitly reverts any `pending_member_request_ids` to standalone (`verified = False`, since they were never approved) in the same pass that dissolves the Event.
 
 ## 8. Traceability summary
 

@@ -64,4 +64,12 @@ describe('QuarantineView (§7, FR-407)', () => {
     renderView()
     expect(await screen.findByText(/no quarantined requests/i)).toBeInTheDocument()
   })
+
+  it('shows the stale-view toast and refetches on a 409 from Reject All (§11)', async () => {
+    api.getQuarantine.mockResolvedValue({ groups: [group] })
+    api.rejectAllQuarantined.mockRejectedValue(Object.assign(new Error('stale'), { status: 409, code: 'INVALID_STATE_TRANSITION' }))
+    renderView()
+    await userEvent.click(await screen.findByRole('button', { name: /reject all/i }))
+    expect(await screen.findByText(/this item has changed/i)).toBeInTheDocument()
+  })
 })

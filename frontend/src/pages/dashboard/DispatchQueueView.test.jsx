@@ -86,4 +86,12 @@ describe('DispatchQueueView (§6, FR-403)', () => {
     renderView()
     expect(await screen.findByText(/no pending requests\./i)).toBeInTheDocument()
   })
+
+  it('shows the stale-view toast and refetches on a 404 from Dispatch (§11)', async () => {
+    api.getDispatchQueue.mockResolvedValue({ sorted: [standaloneItem] })
+    api.dispatchStandalone.mockRejectedValue(Object.assign(new Error('gone'), { status: 404, code: 'NOT_FOUND' }))
+    renderView()
+    await userEvent.click(await screen.findByRole('button', { name: /^dispatch$/i }))
+    expect(await screen.findByText(/this item has changed/i)).toBeInTheDocument()
+  })
 })

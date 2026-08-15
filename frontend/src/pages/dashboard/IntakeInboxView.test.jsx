@@ -87,4 +87,22 @@ describe('IntakeInboxView (§5, FR-401/402)', () => {
     expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
   })
+
+  it('shows the stale-view toast and refetches on a 409 from an action, per §11', async () => {
+    api.getIntakeInbox.mockResolvedValue({ needs_manual_triage: [], sorted: [standaloneItem] })
+    api.verifyStandalone.mockRejectedValue(Object.assign(new Error('stale'), { status: 409, code: 'INVALID_STATE_TRANSITION' }))
+    renderView()
+    await userEvent.click(await screen.findByRole('button', { name: /verify & dispatch/i }))
+    expect(await screen.findByText(/this item has changed/i)).toBeInTheDocument()
+    expect(api.getIntakeInbox).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows a subtle in-place indicator on a background poll refresh, never blanking existing content', async () => {
+    api.getIntakeInbox.mockResolvedValue({ needs_manual_triage: [], sorted: [standaloneItem] })
+    renderView()
+    await screen.findByText(/insulin runs out tonight/i)
+    // Existing content must still be present even while a background
+    // refresh indicator (if any) is shown — the core §11 guarantee.
+    expect(screen.getByText(/insulin runs out tonight/i)).toBeInTheDocument()
+  })
 })

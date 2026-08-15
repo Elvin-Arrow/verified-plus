@@ -1,29 +1,35 @@
+/* M3 primary tabs pattern: label-large type, 3px primary indicator under
+   the active tab, surface-container background for the tab bar. */
 .dashboard-tabbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #d1d5db;
-  padding: 0 1rem;
+  background: var(--md-sys-color-surface-container);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  padding: 0 16px;
 }
 
 .dashboard-tabs {
   display: flex;
-  gap: 1.5rem;
+  gap: 8px;
 }
 
 .dashboard-tab {
-  padding: 0.75rem 0.25rem;
+  padding: 16px 16px 13px;
   text-decoration: none;
-  color: #4b5563;
+  color: var(--md-sys-color-on-surface-variant);
   border-bottom: 3px solid transparent;
-  font-weight: 600;
+  font: var(--md-sys-typescale-title-small-font);
+}
+.dashboard-tab:hover {
+  color: var(--md-sys-color-on-surface);
 }
 
 .dashboard-tab[aria-current='page'] {
-  color: #111827;
-  border-bottom-color: #2563eb;
+  color: var(--md-sys-color-primary);
+  border-bottom-color: var(--md-sys-color-primary);
 }
 
 .dashboard-content {
-  padding: 1rem;
+  padding: 16px;
 }

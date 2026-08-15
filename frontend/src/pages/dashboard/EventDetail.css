@@ -1,0 +1,17 @@
+.event-detail {
+  max-width: 40rem;
+  text-align: left;
+}
+.event-detail > section {
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.event-detail h2 {
+  font: var(--md-sys-typescale-title-medium-font);
+}
+.event-detail li {
+  font: var(--md-sys-typescale-body-medium-font);
+  margin-bottom: 4px;
+}

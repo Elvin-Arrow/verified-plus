@@ -1,0 +1,27 @@
+.quarantine-group {
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.quarantine-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: var(--md-sys-typescale-title-small-font);
+  margin-bottom: 8px;
+}
+.quarantine-group-header > span:first-child {
+  flex: 1;
+  font-family: var(--md-mono, ui-monospace, monospace);
+}
+
+.quarantine-request-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  font: var(--md-sys-typescale-body-medium-font);
+}

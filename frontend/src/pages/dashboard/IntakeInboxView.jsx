@@ -7,6 +7,7 @@ import StandaloneRow from '../../components/StandaloneRow.jsx'
 import MergeConfirmation from '../../components/MergeConfirmation.jsx'
 import ErrorBanner from '../../components/ErrorBanner.jsx'
 import Toast from '../../components/Toast.jsx'
+import './IntakeInboxView.css'
 
 const POLL_INTERVAL_MS = 3000 // docs/design.md §6.3: 3s on the two live queues.
 const ACTOR = 'coordinator_1' // no auth in this version, per api-spec.md §1.
@@ -40,7 +41,7 @@ export default function IntakeInboxView() {
       )}
 
       {triage.length > 0 && (
-        <section aria-label="Needs manual triage">
+        <section aria-label="Needs manual triage" className="triage-section">
           <h2>⚠ Needs Manual Triage ({triage.length})</h2>
           {triage.map(({ item }) => (
             <StandaloneRow

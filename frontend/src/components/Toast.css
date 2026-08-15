@@ -1,0 +1,16 @@
+/* M3 snackbar pattern: inverse-surface fill, shape-extra-small corners,
+   elevation-3, fixed to the bottom of the viewport, auto-width label. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  border-radius: var(--md-sys-shape-corner-extra-small);
+  box-shadow: var(--md-sys-elevation-3);
+  padding: 14px 16px;
+  font: var(--md-sys-typescale-body-medium-font);
+  max-width: calc(100% - 32px);
+  z-index: 30;
+}

@@ -6,6 +6,7 @@ import SeverityBadge from '../../components/SeverityBadge.jsx'
 import OverrideUrgencyForm from '../../components/OverrideUrgencyForm.jsx'
 import MergeConfirmation from '../../components/MergeConfirmation.jsx'
 import ErrorBanner from '../../components/ErrorBanner.jsx'
+import './RequestDetail.css'
 
 const ACTOR = 'coordinator_1'
 

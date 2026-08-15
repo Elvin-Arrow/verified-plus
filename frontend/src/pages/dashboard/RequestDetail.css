@@ -1,0 +1,17 @@
+.request-detail {
+  max-width: 40rem;
+  text-align: left;
+}
+.request-detail > section {
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.request-detail h2 {
+  font: var(--md-sys-typescale-title-medium-font);
+}
+.request-detail li {
+  font: var(--md-sys-typescale-body-medium-font);
+  margin-bottom: 4px;
+}

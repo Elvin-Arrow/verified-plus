@@ -1,3 +1,5 @@
+import './ErrorBanner.css'
+
 // docs/ui-spec.md §11: "500/network failure — a persistent (not
 // auto-dismissing) banner... with a manual retry action; never silently
 // swallowed." Shared by every polling view (FE-08–11), formalized further

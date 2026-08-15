@@ -2,6 +2,7 @@ import { useParams } from 'react-router-dom'
 import * as api from '../../api/client.js'
 import { usePolling } from '../../api/usePolling.js'
 import ErrorBanner from '../../components/ErrorBanner.jsx'
+import './EventDetail.css'
 
 /**
  * FE-12: Event detail — docs/ui-spec.md §5.1's "Event log" link, FR-602.

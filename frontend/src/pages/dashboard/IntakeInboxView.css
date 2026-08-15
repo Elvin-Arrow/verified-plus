@@ -1,0 +1,17 @@
+/* docs/ui-spec.md §5: Needs Manual Triage must be "visually distinct
+   (amber background, not just a label) so it can never be mistaken for
+   just low priority" — an M3 tertiary/error-adjacent amber container,
+   never color alone (the ⚠ icon + "NEEDS MANUAL TRIAGE" text carry the
+   same signal). */
+.triage-section {
+  background: var(--md-ext-color-sev-pending-container);
+  color: var(--md-ext-color-on-sev-pending-container);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.triage-section h2 {
+  font: var(--md-sys-typescale-title-medium-font);
+  margin: 0 0 12px;
+  color: inherit;
+}

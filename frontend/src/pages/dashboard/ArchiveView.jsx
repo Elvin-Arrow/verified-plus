@@ -2,6 +2,7 @@ import * as api from '../../api/client.js'
 import { usePolling } from '../../api/usePolling.js'
 import SeverityBadge from '../../components/SeverityBadge.jsx'
 import ErrorBanner from '../../components/ErrorBanner.jsx'
+import './ArchiveView.css'
 
 const POLL_INTERVAL_MS = 5000
 

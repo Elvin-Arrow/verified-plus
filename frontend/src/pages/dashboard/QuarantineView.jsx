@@ -4,6 +4,7 @@ import { useActionErrorHandling } from '../../api/useActionErrorHandling.js'
 import { useActionButton } from '../../components/useActionButton.js'
 import ErrorBanner from '../../components/ErrorBanner.jsx'
 import Toast from '../../components/Toast.jsx'
+import './QuarantineView.css'
 
 const POLL_INTERVAL_MS = 5000 // docs/design.md §6.3: 5s on lower-priority views.
 const ACTOR = 'coordinator_1'
@@ -11,7 +12,7 @@ const ACTOR = 'coordinator_1'
 function RescueButton({ requestId, onRescue }) {
   const [run, inFlight] = useActionButton(async () => onRescue(requestId))
   return (
-    <button type="button" onClick={run} disabled={inFlight}>
+    <button type="button" className="btn-outlined" onClick={run} disabled={inFlight}>
       Rescue
     </button>
   )
@@ -20,7 +21,7 @@ function RescueButton({ requestId, onRescue }) {
 function RejectAllButton({ deviceId, onRejectAll }) {
   const [run, inFlight] = useActionButton(async () => onRejectAll(deviceId))
   return (
-    <button type="button" onClick={run} disabled={inFlight}>
+    <button type="button" className="btn-danger" onClick={run} disabled={inFlight}>
       Reject All
     </button>
   )

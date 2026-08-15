@@ -1,6 +1,6 @@
 # Software Design Specification — Aid Request Triage & Trust Tool
 
-Version 0.1 · Implements `docs/spec.md` v0.3 (post rubric + sanity-pass). Every design decision below is traced to the requirement ID(s) it satisfies — search for "FR-"/"NFR-" to cross-reference.
+Version 0.2 · Implements `docs/spec.md` v0.3 (post rubric, sanity-pass, and cross-document alignment pass — see spec.md §11). Every design decision below is traced to the requirement ID(s) it satisfies — search for "FR-"/"NFR-" to cross-reference.
 
 ## 1. Architecture overview
 
@@ -55,7 +55,8 @@ backend/
     geo.py                     # haversine_km(), geofence filter, centroid recompute
     sort.py                     # lexicographic_sort() shared by FR-401 and FR-403
     routers/
-      requests.py               # POST /api/requests, GET /api/requests/{id}, override-urgency, split-out, verify/reject-standalone, rescue
+      requests.py               # POST /api/requests, GET /api/requests/{id}, override-urgency, split-out,
+                                 #   verify/reject/dispatch-standalone, rescue, merge (FR-205c)
       events.py                 # verify, approve-pending, dispatch, reject-and-flag, dismiss
       queues.py                 # GET intake-inbox, dispatch-queue, quarantine, archive
       seed.py                   # POST /api/seed/replay
@@ -127,7 +128,8 @@ class Event:
     verified_at: datetime | None = None
     representative_location: Location | None = None   # centroid; recomputed on membership change
     created_at: datetime = field(default_factory=datetime.utcnow)
-    suggested_merge_with: list[str] = field(default_factory=list)  # FR-205b: other Event IDs
+    # FR-205b's excluded-match pairs live on InMemoryStore.suggested_merges (below), not here —
+    # see §4.2 for why a flat store-level list is simpler than a field on each side of the pair
 
 @dataclass
 class DeviceFingerprint:
@@ -158,6 +160,7 @@ class InMemoryStore:
         self.actions: list[CoordinatorAction] = []
         self.urgency_calibration_buffer: list[dict] = []   # FR-604, max N entries
         self.match_calibration_buffer: list[dict] = []      # FR-604, max N entries
+        self.suggested_merges: list[dict] = []               # FR-205b: excluded-match pairs, see §4.2
         self.config: SessionConfig = SessionConfig()        # FR-208 defaults
         self._lock = threading.Lock()   # single coarse lock; see §6.4 on concurrency
 ```
@@ -198,48 +201,86 @@ POST /api/requests
 
 Failure isolation: an embedding/LLM failure short-circuits *before* clustering runs — a failed request never gets force-matched with `matches=[]`, and it surfaces via the Needs Manual Triage section (FR-401) instead of silently entering `standalone` with an unexamined false "no duplicates" assumption.
 
-### 4.2 Cluster assignment (FR-205, FR-205b) — the geometric-filter-then-authority algorithm
+### 4.2 Cluster assignment (FR-205, FR-205b, FR-205c) — geometric-filter-then-authority, with bootstrapping
 
-This is the part earlier verification found two contradictions in (chaining, and the ordering bug from Finding 13). Implemented exactly as spec.md's final sequencing:
+This is the part earlier verification found two contradictions in (chaining, and the ordering bug from Finding 13), plus one the cross-document alignment pass found: the original version never explained how the *first* Event forms from two standalone requests. `llm_matches` here reference matched candidate **requests** (the top-5 from FR-203), not Events directly — each candidate may or may not already belong to one.
 
 ```python
 def assign(request: Request, llm_matches: list[MatchResult]) -> None:
-    matched_events = [store.events[m.candidate_event_id] for m in llm_matches if m.is_match]
+    matched = [store.requests[m.candidate_request_id] for m in llm_matches if m.is_match]
+    matched_in_event = {c.event_id: store.events[c.event_id] for c in matched if c.event_id}
+    matched_standalone = [c for c in matched if not c.event_id]
 
-    # Step 1: geometric filter — discard any Event where adding this request
-    # would exceed max_cluster_span_km from that Event's centroid
-    geo_valid = [
-        e for e in matched_events
+    # Step 1: geometric filter, applied separately to existing-Event matches and standalone matches
+    geo_valid_events = [
+        e for e in matched_in_event.values()
         if geo.haversine_km(request.location, e.representative_location) <= store.config.max_cluster_span_km
     ]
-    geo_excluded = [e for e in matched_events if e not in geo_valid]
+    geo_valid_standalone = [
+        c for c in matched_standalone
+        if geo.haversine_km(request.location, c.location) <= store.config.max_cluster_span_km
+    ]
+    for e in matched_in_event.values():
+        if e not in geo_valid_events:
+            store.suggested_merges.append({"request_id": request.id, "event_id": e.id})       # FR-205b
+    for c in matched_standalone:
+        if c not in geo_valid_standalone:
+            store.suggested_merges.append({"request_id": request.id, "request_id_2": c.id})   # FR-205b
 
-    for e in geo_excluded:                                    # FR-205b
-        e.suggested_merge_with.append(request.id)  # surfaced on both sides in the UI layer
-
-    if not geo_valid:
-        request.status = RequestStatus.STANDALONE             # FR-205 step 5 (post-sanity-fix: never a 1-member Event)
+    if geo_valid_events:
+        # Step 2: authority selection among geometrically valid EXISTING Events
+        authority_rank = {"dispatched": 2, "verified": 1, "candidate": 0}
+        target = max(geo_valid_events, key=lambda e: authority_rank[e.status])
+        _attach_to_event(request, target)                          # steps 3/4
         return
 
-    # Step 2: authority selection among geometrically valid matches
-    authority_rank = {"dispatched": 2, "verified": 1, "candidate": 0}
-    target = max(geo_valid, key=lambda e: authority_rank[e.status])
+    if geo_valid_standalone:
+        # Step 5: bootstrap a brand-new candidate Event — this is how every Event originates,
+        # since two requests must first match each other before either belongs to one
+        new_event = Event(id=new_id(), status=EventStatus.CANDIDATE)
+        for r in [request, *geo_valid_standalone]:
+            r.event_id = new_event.id
+            r.status = RequestStatus.IN_CANDIDATE_EVENT
+            new_event.member_request_ids.append(r.id)
+        recompute_centroid(new_event)
+        store.events[new_event.id] = new_event
+        return
 
+    # Step 6: nothing survived the geometric filter, or no matches at all — remain standalone
+    request.status = RequestStatus.STANDALONE
+
+    # Step 7: no code path here ever merges two pre-existing Events into each other
+
+
+def _attach_to_event(request: Request, target: Event) -> None:
     if target.status in ("verified", "dispatched"):
-        request.status = RequestStatus.PENDING_ADDITION        # FR-304b — no auto-inherit
+        request.status = RequestStatus.PENDING_ADDITION            # FR-304b — no auto-inherit
         request.event_id = target.id
-        target.pending_member_request_ids.append(request.id)   # tracked separately from active members
-        # NOT added to target.member_request_ids — pending members don't count toward FR-501's
-        # 2+ Incident Card threshold or FR-504b's dissolve check until FR-502 "Approve All Pending"
-        # promotes them (see §4.2b)
+        target.pending_member_request_ids.append(request.id)       # not in member_request_ids yet — see §4.2b
     else:  # candidate
         request.status = RequestStatus.IN_CANDIDATE_EVENT
         request.event_id = target.id
         target.member_request_ids.append(request.id)
-        recompute_centroid(target)                              # representative_location updates
+        recompute_centroid(target)
 
-    # never auto-merge two existing Events (FR-205 step 6) — no code path here does that
+
+def manual_merge(request_id: str, target_event_id_or_request_id: str, actor: str) -> None:   # FR-205c
+    request = store.requests[request_id]
+    if target_event_id_or_request_id in store.events:
+        _attach_to_event(request, store.events[target_event_id_or_request_id])
+    else:
+        # both sides were standalone — bootstrap, same as step 5 above
+        other = store.requests[target_event_id_or_request_id]
+        new_event = Event(id=new_id(), status=EventStatus.CANDIDATE,
+                           member_request_ids=[request.id, other.id])
+        request.event_id = new_event.id; request.status = RequestStatus.IN_CANDIDATE_EVENT
+        other.event_id = new_event.id; other.status = RequestStatus.IN_CANDIDATE_EVENT
+        recompute_centroid(new_event)
+        store.events[new_event.id] = new_event
+    log_action(actor, "manual_merge", request_id)
 ```
+
+`store.suggested_merges` (added to `InMemoryStore`, §3) is a flat list of excluded-match pairs rather than a field on `Request`/`Event`, since the pairing is symmetric and only needs to render a "Suggested Merge" affordance in the UI — no need to duplicate the pointer on both sides of the pair.
 
 Pending members live in `Event.pending_member_request_ids` (§3), kept separate from `member_request_ids` so the latter always means "counts toward FR-501's 2+ threshold and FR-504b's dissolve check" without extra filtering at every read site.
 
@@ -269,14 +310,23 @@ def approve_pending(event_id: str, actor: str) -> None:                    # FR-
     recompute_centroid(event)
     log_action(actor, "approve_pending", event_id)
 
-def verify_standalone(request_id: str, actor: str) -> None:                # FR-505
+def verify_standalone(request_id: str, actor: str) -> None:                # FR-505: "Verify & Dispatch," atomic
     r = store.requests[request_id]
-    r.status = RequestStatus.STANDALONE   # unchanged — was already standalone, no Event involved
-    r.verified = True                     # this is what actually moves it into the Dispatch Queue (FR-403)
-    log_action(actor, "verify_standalone", request_id)
+    r.verified = True
+    r.status = RequestStatus.DISPATCHED   # terminal immediately — no intermediate Dispatch Queue residency;
+    log_action(actor, "verify_standalone", request_id)     # a lone request has no batching benefit from the split
+
+def dispatch_standalone(request_id: str, actor: str) -> None:              # FR-505b
+    r = store.requests[request_id]
+    assert r.verified and r.status == RequestStatus.STANDALONE, \
+        "only reachable for the FR-504b case: verified via a dissolved Event, not yet dispatched"
+    r.status = RequestStatus.DISPATCHED
+    log_action(actor, "dispatch_standalone", request_id)
 ```
 
-`maybe_dissolve_event` (§4.5) never *sets* `verified` — by design, it only clears `event_id`/resets `status`, and leaves each affected request's `verified` flag exactly as the functions above already set it, so a dissolved Event's sole surviving active member correctly keeps routing to whichever queue it earned its way into. The one thing §4.5 must additionally handle, which an earlier draft of this design missed: **`pending_addition` members are not exempt from dissolution.** If an Event is deleted (active membership drops to 0–1) while it still has entries in `pending_member_request_ids`, those requests' `event_id` would dangle unless they're explicitly reverted in the same pass — see the corrected §4.5 below.
+Note the asymmetry between `verify_standalone` and `verify_event`: a freshly-standalone request goes straight to `dispatched` (FR-505), while an Incident Card's "Verify Event & Approve All" (`verify_event`, above) only reaches `verified`/`in_verified_event`, needing a separate later "Approve" (dispatch) click. This is intentional, not an inconsistency — the two-step split exists specifically to support batch-approving a cluster (FR-502), which doesn't apply to a single ungrouped request. The one case where a standalone request *does* need that separate dispatch step is exactly `dispatch_standalone` above: a request that was already `verified = True` as an Event member before that Event dissolved out from under it (FR-504b) — it re-enters as `standalone` but skips re-verification, going straight to the Dispatch Queue awaiting its own dispatch click.
+
+`maybe_dissolve_event` (§4.5) never *sets* `verified` — by design, it only clears `event_id`/resets `status`, and leaves each affected request's `verified` flag exactly as the functions above already set it, so a dissolved Event's sole surviving active member correctly keeps routing to whichever queue it earned its way into. §4.5 also explicitly reverts any `pending_addition` members still attached at dissolution time (not just the sole active member) — see the corrected §4.5 below.
 
 ### 4.3 Lexicographic sort (FR-401, FR-403)
 
@@ -456,8 +506,10 @@ Dashboard
 │           │                                       + Dismiss Cluster (FR-507, candidate only)
 │           │                                       + Verify Event & Approve All (FR-502)
 │           └── StandaloneRow (1 member)            → inline Verify&Dispatch / Reject (FR-505)
+│                                                       + Merge button if a SuggestedMerge exists (FR-205c)
 ├── DispatchQueue             (FR-403)
-│     └── IncidentCard (verified) → Approve (dispatch, FR-502) / Approve All Pending (FR-304b) / Reject&Flag
+│     ├── IncidentCard (verified) → Approve (dispatch, FR-502) / Approve All Pending (FR-304b) / Reject&Flag
+│     └── StandaloneRow (verified=true, not yet dispatched — FR-504b case only) → inline Dispatch (FR-505b)
 ├── QuarantineInbox           (FR-407)
 │     └── grouped by device  → bulk Reject All / individual Rescue
 ├── ArchiveView               (FR-406)
@@ -488,6 +540,12 @@ Writing the design surfaced two requirement/implementation-level gaps, both reso
 
 - **FR-504b's "keeps whichever verification state it individually held"** was unimplementable with `Request.status` alone, since `standalone` was used for both "never verified" (routes to Intake Inbox) and "was verified, Event dissolved" (routes to Dispatch Queue) — one enum value, two routing meanings. Resolved with an orthogonal `verified: bool` field on `Request` (§3), set only by the explicit approval actions in §4.2b and left untouched by dissolution (§4.5). spec.md §6/FR-403/FR-504b were updated to match.
 - **Dissolution didn't account for `pending_addition` members**: an Event with 1 active member and 2 pending members would previously be deleted outright, leaving the pending members' `event_id` dangling. §4.5 now explicitly reverts any `pending_member_request_ids` to standalone (`verified = False`, since they were never approved) in the same pass that dissolves the Event.
+
+A subsequent cross-document alignment pass (checking idea.md/spec.md/design.md against each other, not just spec vs. design) found three more real gaps, all fixed in both documents (spec.md §11):
+
+- **FR-205b's "Suggested Merge" indicator had no way to act on it** — no requirement or route executed a merge. Added FR-205c and `manual_merge()` (§4.2).
+- **FR-205's original wording never explained how the first Event forms** — it only described joining a new request to an *already-existing* Event. Rewritten (§4.2) to bootstrap a new Event when matched candidates are themselves standalone.
+- **Standalone requests could get stuck verified-but-never-dispatched** — FR-505's "Verify & Dispatch" now performs both steps atomically (§4.2b) for the common case, and the one path that still needs a separate dispatch step (a request that re-enters standalone via FR-504b already verified) has one: `dispatch_standalone()` / FR-505b.
 
 ## 8. Traceability summary
 

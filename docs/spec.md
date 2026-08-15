@@ -1,6 +1,6 @@
 # Requirement Specification — Aid Request Triage & Trust Tool
 
-Version 0.2 (post-verification) · Derived from `docs/idea.md`, hardened via a 13-round Gemini verification pass (see §10 for a change log).
+Version 0.3 (post cross-document alignment) · Derived from `docs/idea.md`, hardened via a 13-round Gemini verification pass (§10) and a subsequent cross-document alignment pass against `idea.md` and `design.md` (§11).
 
 ## 1. Purpose & scope
 
@@ -49,14 +49,16 @@ No stack was mandated; the following are assumptions, not requirements:
 - **FR-202** — Before any semantic comparison, the system SHALL build a candidate pool of prior requests/events whose `representative_location` (an Event's centroid, or a standalone request's own location) is within the session's configured **geofence radius** (default **1 km**, see FR-208) of the new request, **and** which meet at least one of: (a) the candidate belongs to an Event that is not yet `dispatched`/`rejected` (no age limit — an active, ongoing emergency stays comparable no matter how long it has been open), or (b) the candidate was submitted/created within the last **48 hours** (applies to standalone requests and to inactive/resolved events, which age out).
 - **FR-203** — Within that candidate pool, the system SHALL rank candidates by cosine similarity of their embeddings and select the **top 5** for further evaluation.
 - **FR-204** — The system SHALL pre-compute the physical distance (e.g. haversine) between the new request and each of the top-5 candidates and include it as an explicit, human-readable value (e.g. "150 meters away") in the LLM prompt used to judge each candidate — raw lat/lng floats SHALL NOT be the only spatial signal given to the LLM, since the model cannot reliably reason about proximity from coordinates alone. The LLM call SHALL return, per candidate: a match/no-match judgment and a human-readable reason (e.g. "closely matches request #114, submitted 20 min ago, same neighborhood, 150m away").
-- **FR-205** — Cluster assignment for a new request that the LLM judged a match against one or more candidates:
-  1. **Geometric filter first**: discard any matched candidate's Event if adding the new request would place any member (or the new request itself) more than the session's configured **max-cluster-span** (default **1.5 km**, see FR-208) from that Event's `representative_location`.
-  2. **Authority selection**: among the Events that survive the geometric filter, join the new request to the one with the highest operational authority, ranked `dispatched` > `verified` > `candidate`.
-  3. If the matched Event is `verified` or `dispatched`, the new request SHALL NOT auto-inherit verified/active status — it attaches with `status = pending_addition` (see FR-304b) rather than immediately joining the active queue.
-  4. If the matched Event is `candidate`, the new request joins it directly as an unverified member.
-  5. If no matched Event survives the geometric filter, the new request SHALL remain `standalone` — it SHALL NOT form a new single-member `candidate` Event (per FR-501/FR-504b, an Event must have 2+ active members to exist as a card; a lone request is represented as a standalone item, not a 1-member Event). The FR-205b "Suggested Merge" indicator is what preserves visibility of the geometrically-excluded match for a coordinator, rather than a phantom Event. If there were no LLM matches at all, the request is likewise `standalone` (FR-206).
-  6. The system SHALL NOT automatically merge two distinct existing Events under any circumstance.
-- **FR-205b** — If an LLM match against an Event is excluded by the geometric filter (FR-205 step 1) — whether that Event was the only match or one of several — the system SHALL surface a **"Suggested Merge"** indicator on that Event's Incident Card (and on the new request, wherever it's currently shown per FR-205 step 5), allowing a coordinator to manually merge them into one Event despite the distance.
+- **FR-205** — Cluster assignment for a new request that the LLM judged a match against one or more candidates. Matched candidates are first split into those that already belong to an existing Event and those that are themselves `standalone` (no Event — this includes the very first time two requests ever match each other, since no Event exists yet to contain them):
+  1. **Geometric filter**: among matched candidates belonging to an existing Event, discard any whose Event would end up with a member (or the new request) more than the configured **max-cluster-span** (default **1.5 km**, see FR-208) from that Event's `representative_location`. Among matched *standalone* candidates, discard any more than max-cluster-span from the new request's own location. (This second check is normally a no-op, since the default geofence radius, 1 km, is smaller than the default max-cluster-span, 1.5 km — every geofenced candidate already qualifies — but it protects against a session configured via FR-208 where that relationship doesn't hold.)
+  2. **Authority selection**: among the *existing* Events that survive the geometric filter, join the new request to the one with the highest operational authority, ranked `dispatched` > `verified` > `candidate`.
+  3. If the selected existing Event is `verified` or `dispatched`, the new request SHALL NOT auto-inherit verified/active status — it attaches with `status = pending_addition` (see FR-304b) rather than immediately joining the active queue.
+  4. If the selected existing Event is `candidate`, the new request joins it directly as an unverified member.
+  5. **Bootstrap a new Event**: if no *existing* Event survived the geometric filter, but one or more *standalone* candidates did, the system SHALL create a brand-new `candidate` Event containing the new request and those standalone candidate(s) — this is how every Event originates, since two requests must first match each other with neither yet belonging to one. `representative_location` is computed as their centroid.
+  6. **Remain standalone**: if no candidate at all (Event or standalone) survives the geometric filter, or there were no LLM matches, the new request SHALL remain `standalone`. It SHALL NOT form a phantom single-member `candidate` Event (per FR-501/FR-504b, an Event must have 2+ active members to exist as a card). The FR-205b "Suggested Merge" indicator preserves visibility of any geometrically-excluded match instead.
+  7. The system SHALL NOT automatically merge two distinct *existing* Events under any circumstance. (This is distinct from step 5's bootstrapping, which creates one new Event out of previously-Event-less requests — there is no existing Event being merged away.)
+- **FR-205b** — If an LLM match is excluded by the geometric filter (FR-205 step 1) — against an existing Event or against a standalone candidate, whether it was the only match or one of several — the system SHALL surface a **"Suggested Merge"** indicator (on the excluded Event's Incident Card, or on both requests if the exclusion was between two standalones) so a coordinator can see the near-miss.
+- **FR-205c (Manual merge)** — A coordinator acting on a Suggested Merge indicator (FR-205b) SHALL be able to trigger a **"Merge"** action that manually attaches the request(s) despite exceeding the geometric bound — following the same downstream rules FR-205 would have applied had the geometric filter passed (steps 2–5: authority selection if an existing Event is involved, pending-addition if it's verified/dispatched, direct membership if candidate, or bootstrapping a new Event if both sides were standalone). This action bypasses only the geometric filter, never the authority/pending-addition logic, and SHALL be logged (FR-601, `action_type: manual_merge`).
 - **FR-206** — A request with no LLM-judged matches SHALL be `standalone` and SHALL still be individually visible to coordinators via the Intake & Verification Inbox (§4.4), not silently dropped.
 - **FR-208 (Configurable spatial parameters)** — The geofence radius (FR-202, default 1 km) and max-cluster-span (FR-205, default 1.5 km) SHALL be configurable at session/seed-run start (e.g. a seed-script flag or session-init API parameter, per FR-701–702), not hardcoded, so a demo can illustrate tuning for a denser urban area vs. a sparser rural one without a real terrain/population-density model behind it. Once a session starts, these values SHALL remain fixed for the duration of that session — they are not intended to change mid-session.
 
@@ -105,7 +107,8 @@ No stack was mandated; the following are assumptions, not requirements:
 - **FR-503** — An expanded Incident Card SHALL group its member requests **by device fingerprint**, not as one flat list. Each device group SHALL have its own **"Reject & Flag Device"** action, which: (a) sets `device_flag = true` for that fingerprint (FR-306); (b) transitions that device group's requests within this card to `rejected`; (c) sweeps all of that device's other currently-active requests (elsewhere in the system) into `quarantined` (FR-308).
 - **FR-504** — Any individual member request within an expanded Incident Card SHALL support a **"Split Out"** action that removes it from the cluster and re-inserts it as a standalone request, re-evaluated independently against FR-401/FR-403.
 - **FR-504b** — If a "Split Out", "Reject & Flag Device", or "Rescue" action causes an Event's active member count to drop to 0 or 1, the system SHALL automatically dissolve that Event: any sole remaining active member has its `event_id` cleared, reverts to `status = standalone`, and keeps whichever verification state it individually held via the separate `verified` flag (§6) — i.e. it stays in the Dispatch Queue (FR-403) if `verified = true`, or the Intake Inbox (FR-401) if `verified = false` — it SHALL remain visible via FR-401/FR-403, never orphaned. (The `status` enum alone is not sufficient to distinguish these two cases, since `standalone` is used both for "never verified" and "was verified, Event since dissolved" — hence the separate `verified` boolean; see §6.) Additionally, **any `pending_addition` members still attached to the dissolving Event (FR-304b) SHALL be reverted in the same operation** — `event_id` cleared, `status = standalone`, `verified = false` (they were never approved) — rather than left pointing at a Event ID that no longer exists.
-- **FR-505** — A standalone (unclustered) request SHALL be actionable individually via single-click inline **"Verify & Dispatch"** / **"Reject"** actions directly from the Intake & Verification Inbox list view, without requiring an expanded detail view, to keep per-item friction bounded even though every standalone request requires an explicit human action (see rationale in §10, Finding 3).
+- **FR-505** — A standalone (unclustered) request in the Intake & Verification Inbox SHALL be actionable individually via single-click inline **"Verify & Dispatch"** / **"Reject"** actions, without requiring an expanded detail view, to keep per-item friction bounded even though every standalone request requires an explicit human action (see rationale in §10, Finding 3). "Verify & Dispatch" performs both steps atomically — `verified = true` and `status = dispatched` (terminal) in one action, moving straight to the Archive (FR-406) without an intermediate Dispatch Queue residency — since the verify/dispatch split that Incident Cards use exists to support batch-approving a cluster (FR-502), which doesn't apply to a single ungrouped request.
+- **FR-505b** — A standalone request that is `verified = true` but not yet `dispatched` — which can only happen via FR-504b (an Event dissolves and its sole surviving member had already been individually verified before the Event went away) — SHALL appear in the Dispatch Queue (FR-403) and SHALL support a **"Dispatch"** action, analogous to FR-502's Incident Card "Approve," transitioning it to `status = dispatched` (terminal) into the Archive.
 - **FR-506** — Every flag or match judgment shown to a coordinator (duplicate match, urgency score, device flag) SHALL be accompanied by a human-readable reason string generated at detection time (FR-204), not a bare numeric score.
 - **FR-507** — A `candidate` Event's Incident Card SHALL support a **"Dismiss Cluster"** action, distinct from FR-503's "Reject & Flag Device," for cases where the grouping itself was simply wrong (an LLM mis-merge of unrelated reports) with no fraud implied. This action: (a) dissolves the Event entirely; (b) reverts every current member to `standalone`, each re-entering the Intake & Verification Inbox for independent evaluation; (c) SHALL NOT set `device_flag` on any member's device fingerprint. Only available on `candidate` Events — a `verified` Event's members are dismissed one at a time via Split Out (FR-504) instead, since verified members have already received individual coordinator attention.
 
@@ -163,11 +166,13 @@ Request {
 
 Event (candidate/verified/dispatched cluster) {
   id: string
-  member_request_ids: [string]            // active members; does not include split_out/quarantined
+  member_request_ids: [string]            // active, approved members; does not include pending/quarantined
+  pending_member_request_ids: [string]    // FR-304b: matched to this (already-verified) Event but not yet approved
   status: enum { candidate, verified, dispatched }
   verified_by: string | null              // coordinator id
   verified_at: datetime | null
   representative_location: { lat, lng }   // centroid; used for FR-202 geofencing and FR-205 distance bound
+  suggested_merge_request_ids: [string]   // FR-205b: requests geometrically excluded from this Event, pending FR-205c review
   created_at: datetime
 }
 
@@ -184,7 +189,8 @@ CoordinatorAction (audit log, FR-601) {
   action_type: enum {
     verify_event, approve_pending, approve_dispatch,
     reject_flag_device, dismiss_cluster, split_out, rescue_from_quarantine,
-    verify_standalone, reject_standalone, override_urgency
+    verify_standalone, reject_standalone, dispatch_standalone,
+    override_urgency, manual_merge
   }
   target_id: string
   timestamp: datetime
@@ -208,8 +214,10 @@ Note: `event_confidence` from the v0.1 draft has been removed as a variable enti
 | `POST` | `/api/events/{id}/devices/{device_id}/reject-and-flag` | Reject a device group's members, flag device, quarantine its other requests | FR-503, FR-306, FR-308 |
 | `POST` | `/api/requests/{id}/split-out` | Eject one request from its cluster (may dissolve the Event, FR-504b) | FR-504, FR-504b |
 | `POST` | `/api/events/{id}/dismiss` | Dismiss a candidate Event as a false-positive grouping; all members revert to standalone, no device flag set | FR-507 |
-| `POST` | `/api/requests/{id}/verify-standalone` | Verify a standalone request directly | FR-505 |
+| `POST` | `/api/requests/{id}/verify-standalone` | Verify AND dispatch a standalone request in one action | FR-505 |
 | `POST` | `/api/requests/{id}/reject-standalone` | Reject a standalone request directly | FR-505 |
+| `POST` | `/api/requests/{id}/dispatch-standalone` | Dispatch a standalone request that's verified but not yet dispatched (FR-504b dissolution case only) | FR-505b |
+| `POST` | `/api/requests/{id}/merge` | Manually merge a geometrically-excluded request into its suggested Event (or bootstrap a new one) | FR-205c |
 | `GET` | `/api/quarantine` | List Quarantine Inbox | FR-407 |
 | `POST` | `/api/requests/{id}/rescue` | Move a quarantined request back to the Intake Inbox | FR-407, FR-504b |
 | `GET` | `/api/archive` | List resolved/terminal items | FR-406 |
@@ -248,3 +256,12 @@ Applied from a 13-round Gemini SRS review:
 11. "Split Out" could leave a 1-member Event that fell through UI logic (too small for an Incident Card, not flagged as standalone): Events now auto-dissolve at membership 1, reverting the sole member to `standalone` (FR-504b).
 12. Seed/replay "reset" left orphaned audit-log references and stale device flags across demo runs: reset mode now performs a full cascading wipe (FR-702).
 13. Two of the above fixes (geometric bound + authority-based routing) interacted to produce false-negative merges: sequencing fixed so the geometric filter runs before authority selection, not after (FR-205, folds in Finding 9).
+
+## 11. Change log — cross-document alignment pass (idea.md / spec.md / design.md)
+
+A subsequent alignment review (checking all three project documents against each other, not just spec vs. design in isolation) found:
+
+14. **Dead-end UI affordance**: FR-205b required a "Suggested Merge" indicator with no way to act on it — no requirement, action, or API route existed to actually execute a merge. Fixed: new **FR-205c** ("Manual merge" action) plus a corresponding API route.
+15. **A foundational gap in FR-205**: the original wording only described joining a new request to an *existing* Event, never explaining how the very first Event forms from two previously-Event-less (standalone) requests matching each other. Fixed: FR-205 rewritten to explicitly bootstrap a new `candidate` Event when matched candidates are themselves standalone (step 5).
+16. **Standalone requests could get permanently stuck** once verified but not yet dispatched — no action existed to move a verified standalone request out of the Dispatch Queue into a terminal state. Fixed: FR-505 now performs verify-and-dispatch atomically for the common case (a single request doesn't benefit from the verify/dispatch split that exists to support Incident Card batching), and new **FR-505b** covers the one remaining case where a standalone request can be verified-but-not-dispatched (via FR-504b's Event-dissolution path).
+17. `idea.md` had drifted from the hardened spec (still described the removed `event_confidence` mechanic, the pre-broadening "Candidate Events inbox," a feedback loop that sounded like weight updates, and "extra scrutiny" language superseded by the Quarantine mechanism) — reconciled; see `idea.md`'s own revision for details.

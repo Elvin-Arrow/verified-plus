@@ -5,6 +5,8 @@ import IntakeInboxView from './pages/dashboard/IntakeInboxView.jsx'
 import DispatchQueueView from './pages/dashboard/DispatchQueueView.jsx'
 import QuarantineView from './pages/dashboard/QuarantineView.jsx'
 import ArchiveView from './pages/dashboard/ArchiveView.jsx'
+import RequestDetail from './pages/dashboard/RequestDetail.jsx'
+import EventDetail from './pages/dashboard/EventDetail.jsx'
 
 // FE-01: routing shell — two entry points per docs/ui-spec.md §2.
 export default function App() {
@@ -18,6 +20,8 @@ export default function App() {
         <Route path="dispatch-queue" element={<DispatchQueueView />} />
         <Route path="quarantine" element={<QuarantineView />} />
         <Route path="archive" element={<ArchiveView />} />
+        <Route path="requests/:id" element={<RequestDetail />} />
+        <Route path="events/:id" element={<EventDetail />} />
       </Route>
       <Route path="*" element={<Navigate to="/intake" replace />} />
     </Routes>

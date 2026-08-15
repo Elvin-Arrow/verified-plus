@@ -16,7 +16,7 @@ function groupByDevice(members) {
 function DeviceGroupActionButton({ deviceId, eventId, onRejectAndFlagDevice }) {
   const [run, inFlight] = useActionButton(async () => onRejectAndFlagDevice(eventId, deviceId))
   return (
-    <button type="button" onClick={run} disabled={inFlight}>
+    <button type="button" className="btn-danger" onClick={run} disabled={inFlight}>
       Reject & Flag Device
     </button>
   )
@@ -25,7 +25,13 @@ function DeviceGroupActionButton({ deviceId, eventId, onRejectAndFlagDevice }) {
 function SplitOutButton({ requestId, onSplitOut }) {
   const [run, inFlight] = useActionButton(async () => onSplitOut(requestId))
   return (
-    <button type="button" onClick={run} disabled={inFlight} aria-label={`Split Out ${requestId}`}>
+    <button
+      type="button"
+      className="btn-danger btn-outlined"
+      onClick={run}
+      disabled={inFlight}
+      aria-label={`Split Out ${requestId}`}
+    >
       ✕ Split Out
     </button>
   )
@@ -34,7 +40,7 @@ function SplitOutButton({ requestId, onSplitOut }) {
 function MergeButton({ requestId, onMerge }) {
   const [run, inFlight] = useActionButton(async () => onMerge(requestId))
   return (
-    <button type="button" onClick={run} disabled={inFlight}>
+    <button type="button" className="btn-tonal" onClick={run} disabled={inFlight}>
       ⚠ Possible related event — Merge?
     </button>
   )
@@ -91,7 +97,7 @@ export default function IncidentCard({
             </button>
           )}
         </div>
-        <button type="button" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+        <button type="button" className="btn-text" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
           {expanded ? 'collapse ▴' : 'expand ▾'}
         </button>
       </div>
@@ -115,7 +121,7 @@ export default function IncidentCard({
 
           {variant === 'candidate' && (
             <div className="incident-card-dismiss">
-              <button type="button" onClick={runDismiss} disabled={dismissInFlight}>
+              <button type="button" className="btn-tonal" onClick={runDismiss} disabled={dismissInFlight}>
                 Dismiss Cluster
               </button>
             </div>

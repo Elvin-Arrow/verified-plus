@@ -1,12 +1,16 @@
+/* M3 outlined card pattern (shape-medium, outline-variant border, no
+   elevation at rest) — StandaloneRow is a low-emphasis list item, not a
+   surface that needs to visually float above the page. */
 .standalone-row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
-  margin-bottom: 0.5rem;
-  background: #fff;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-medium);
+  margin-bottom: 8px;
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--md-sys-color-on-surface);
 }
 
 .standalone-row-text {
@@ -14,11 +18,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font: var(--md-sys-typescale-body-large-font);
 }
 
 .standalone-row-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
   align-items: center;
   flex-shrink: 0;
+}
+
+.standalone-row-actions a {
+  font: var(--md-sys-typescale-label-large-font);
+  text-decoration: none;
+  padding: 10px 12px;
 }

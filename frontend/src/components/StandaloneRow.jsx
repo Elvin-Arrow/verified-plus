@@ -47,16 +47,16 @@ export default function StandaloneRow({
             <button type="button" onClick={runVerifyDispatch} disabled={verifyDispatchInFlight}>
               Verify & Dispatch
             </button>
-            <button type="button" onClick={runReject} disabled={rejectInFlight}>
+            <button type="button" className="btn-danger btn-outlined" onClick={runReject} disabled={rejectInFlight}>
               Reject
             </button>
             {variant === 'triage' && (
-              <button type="button" onClick={() => onSetUrgency(item.id)}>
+              <button type="button" className="btn-outlined" onClick={() => onSetUrgency(item.id)}>
                 Set Urgency
               </button>
             )}
             {hasSuggestedMerge && (
-              <button type="button" onClick={runMerge} disabled={mergeInFlight}>
+              <button type="button" className="btn-tonal" onClick={runMerge} disabled={mergeInFlight}>
                 Merge
               </button>
             )}

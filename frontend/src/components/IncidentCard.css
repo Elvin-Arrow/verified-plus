@@ -1,74 +1,101 @@
+/* M3 elevated card pattern: no visible border, surface-container-low
+   fill, elevation-1 at rest rising to elevation-2 on hover — Incident
+   Cards are the highest-emphasis list item (a candidate/verified Event),
+   so they get M3's "elevated card" treatment rather than the plain
+   outlined treatment used for StandaloneRow. */
 .incident-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
-  margin-bottom: 0.75rem;
-  background: #fff;
+  border-radius: var(--md-sys-shape-corner-large);
+  margin-bottom: 12px;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-sys-elevation-1);
+  transition: box-shadow 0.15s ease;
+}
+.incident-card:hover {
+  box-shadow: var(--md-sys-elevation-2);
 }
 
 .incident-card-header {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem;
+  gap: 12px;
+  padding: 16px;
 }
 
 .incident-card-title {
   flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 2px;
+}
+.incident-card-title > span:first-child {
+  font: var(--md-sys-typescale-title-medium-font);
 }
 
 .incident-card-badge {
-  font-size: 0.85rem;
-  color: #6b7280;
+  font: var(--md-sys-typescale-body-small-font);
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .incident-card-expanded {
-  border-top: 1px solid #e5e7eb;
-  padding: 0.75rem;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  padding: 16px;
 }
 
+/* Device group: a filled sub-surface (surface-container) nested inside the
+   card's own surface-container-low, per M3's tonal-layering convention for
+   "a container inside a container" without resorting to a hard border. */
 .device-group {
-  border: 1px solid #f3f4f6;
-  border-radius: 0.4rem;
-  padding: 0.5rem;
-  margin-bottom: 0.5rem;
+  background: var(--md-sys-color-surface-container);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 12px;
+  margin-bottom: 8px;
 }
 
 .device-group-header {
-  font-weight: 600;
-  font-size: 0.85rem;
-  margin-bottom: 0.35rem;
-  color: #4b5563;
+  font: var(--md-sys-typescale-label-large-font);
+  margin-bottom: 8px;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .device-group-member {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
+  gap: 8px;
+  padding: 6px 0;
+  font: var(--md-sys-typescale-body-medium-font);
+}
+.device-group-member > span {
+  flex: 1;
 }
 
+/* Deliberately visually separated from per-device Reject & Flag Device
+   actions (docs/ui-spec.md §5.1) — Dismiss Cluster implies no fraud, so
+   it sits below a dashed rule rather than beside the destructive actions,
+   and its button uses the tonal (not error) role. */
 .incident-card-dismiss {
-  /* Deliberately visually separated from per-device Reject & Flag Device
-     actions (docs/ui-spec.md §5.1) — Dismiss Cluster implies no fraud. */
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px dashed #d1d5db;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--md-sys-color-outline-variant);
 }
 
 .incident-card-pending {
-  margin-top: 0.75rem;
-  padding: 0.5rem;
-  background: #eff6ff;
-  border-radius: 0.4rem;
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+  border-radius: var(--md-sys-shape-corner-medium);
 }
 
 .incident-card-pending-header {
-  font-weight: 600;
-  margin-bottom: 0.5rem;
+  font: var(--md-sys-typescale-title-small-font);
+  margin-bottom: 8px;
 }
 
 .incident-card-footer {
-  margin-top: 0.5rem;
+  margin-top: 8px;
+}
+.incident-card-footer a {
+  font: var(--md-sys-typescale-label-large-font);
+  text-decoration: none;
 }

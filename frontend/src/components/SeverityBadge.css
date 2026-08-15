@@ -1,24 +1,47 @@
+/* M3 restyle: severity badge as an M3 "assist chip"-shaped indicator —
+   full (pill) shape, label-large type, container/on-container color pairs.
+   Severity->role mapping documented in src/theme/tokens.css. */
 .severity-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 1.75rem;
   height: 1.75rem;
-  padding: 0 0.4rem;
-  border-radius: 999px;
+  padding: 0 0.5rem;
+  border-radius: var(--md-sys-shape-corner-full);
+  font: var(--md-sys-typescale-label-large-font);
   font-weight: 700;
-  font-size: 0.9rem;
-  color: #1a1a1a;
 }
 
-.severity-red { background: #ef4444; color: #fff; }
-.severity-orange { background: #f97316; color: #1a1a1a; }
-.severity-yellow { background: #eab308; color: #1a1a1a; }
-.severity-blue { background: #3b82f6; color: #fff; }
-.severity-gray { background: #9ca3af; color: #1a1a1a; }
+.severity-red {
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+}
+.severity-orange {
+  background: var(--md-ext-color-sev4);
+  color: var(--md-ext-color-on-sev4);
+}
+.severity-yellow {
+  background: var(--md-sys-color-tertiary);
+  color: var(--md-sys-color-on-tertiary);
+}
+.severity-blue {
+  background: var(--md-sys-color-secondary);
+  color: var(--md-sys-color-on-secondary);
+}
+.severity-gray {
+  background: var(--md-ext-color-sev1);
+  color: var(--md-ext-color-on-sev1);
+}
 
 .severity-pending {
-  background: repeating-linear-gradient(45deg, #fbbf24, #fbbf24 6px, #fde68a 6px, #fde68a 12px);
-  color: #1a1a1a;
-  font-size: 1rem;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--md-ext-color-sev-pending),
+    var(--md-ext-color-sev-pending) 6px,
+    var(--md-ext-color-sev-pending-stripe) 6px,
+    var(--md-ext-color-sev-pending-stripe) 12px
+  );
+  color: var(--md-ext-color-on-sev-pending);
+  font: var(--md-sys-typescale-label-large-font);
 }

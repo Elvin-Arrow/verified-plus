@@ -1,0 +1,180 @@
+/*
+ * Material Design 3 (M3) design-token layer.
+ * Source: m3.material.io — color roles/dynamic color, type scale, shape
+ * scale, elevation. Seed color is a calm blue (#2E5AAC-ish hue) — chosen
+ * deliberately so the *brand* primary is never red, since red/error is
+ * reserved exclusively for severity-5 urgency per docs/ui-spec.md §9
+ * (conflating brand color with "critical" would undermine that signal).
+ *
+ * Severity mapping (docs/ui-spec.md §9) onto M3 color roles:
+ *   5 (Red)    -> error / on-error / error-container            (M3's own alarm role)
+ *   4 (Orange) -> custom "sev-4" tonal pair, deep amber/orange   (M3 supports
+ *   3 (Yellow) -> tertiary / on-tertiary / tertiary-container     custom key-color
+ *   2 (Blue)   -> secondary / on-secondary / secondary-container  roles beyond the
+ *   1 (Gray)   -> neutral surface-variant / on-surface-variant    3 accents + error)
+ *   pending    -> custom "sev-pending" amber, hatched pattern, never on 1-5 scale
+ */
+
+:root {
+  /* ---- M3 color roles: light scheme ---- */
+  --md-sys-color-primary: #2f5fac;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #d8e2ff;
+  --md-sys-color-on-primary-container: #001a41;
+
+  --md-sys-color-secondary: #565f71;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #dae2f9;
+  --md-sys-color-on-secondary-container: #131c2b;
+
+  --md-sys-color-tertiary: #715573;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #fbd7fc;
+  --md-sys-color-on-tertiary-container: #29132d;
+
+  --md-sys-color-error: #ba1a1a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #410002;
+
+  --md-sys-color-background: #fdfbff;
+  --md-sys-color-on-background: #1a1b20;
+  --md-sys-color-surface: #fdfbff;
+  --md-sys-color-on-surface: #1a1b20;
+  --md-sys-color-surface-variant: #e1e2ec;
+  --md-sys-color-on-surface-variant: #44474f;
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container-low: #f6f6fc;
+  --md-sys-color-surface-container: #f0f0f6;
+  --md-sys-color-surface-container-high: #eaeaf1;
+  --md-sys-color-surface-container-highest: #e4e4eb;
+  --md-sys-color-outline: #74777f;
+  --md-sys-color-outline-variant: #c4c6d0;
+  --md-sys-color-inverse-surface: #2f3036;
+  --md-sys-color-inverse-on-surface: #f1f0f7;
+  --md-sys-color-inverse-primary: #aec6ff;
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+
+  /* ---- Custom domain-extension roles for severity tiers 4/1/pending ----
+     (M3 explicitly allows extending the scheme with additional key-color
+     tonal pairs for domain-specific semantics not covered by the 3 accents
+     + error — this is that extension, not an ad hoc hardcode.) */
+  --md-ext-color-sev4: #8a4b00;
+  --md-ext-color-on-sev4: #ffffff;
+  --md-ext-color-sev4-container: #ffdcb8;
+  --md-ext-color-on-sev4-container: #2c1600;
+
+  --md-ext-color-sev1: #44474f;
+  --md-ext-color-on-sev1: #ffffff;
+  --md-ext-color-sev1-container: #dee2eb;
+  --md-ext-color-on-sev1-container: #1b1e26;
+
+  --md-ext-color-sev-pending: #7a5900;
+  --md-ext-color-on-sev-pending: #ffffff;
+  --md-ext-color-sev-pending-container: #ffe08c;
+  --md-ext-color-on-sev-pending-container: #271900;
+  --md-ext-color-sev-pending-stripe: #fff2c6;
+
+  /* ---- M3 type scale ---- */
+  --md-sys-typescale-display-large-font: 400 57px/64px var(--md-sys-font);
+  --md-sys-typescale-display-medium-font: 400 45px/52px var(--md-sys-font);
+  --md-sys-typescale-display-small-font: 400 36px/44px var(--md-sys-font);
+  --md-sys-typescale-headline-large-font: 400 32px/40px var(--md-sys-font);
+  --md-sys-typescale-headline-medium-font: 400 28px/36px var(--md-sys-font);
+  --md-sys-typescale-headline-small-font: 400 24px/32px var(--md-sys-font);
+  --md-sys-typescale-title-large-font: 400 22px/28px var(--md-sys-font);
+  --md-sys-typescale-title-medium-font: 500 16px/24px var(--md-sys-font);
+  --md-sys-typescale-title-small-font: 500 14px/20px var(--md-sys-font);
+  --md-sys-typescale-body-large-font: 400 16px/24px var(--md-sys-font);
+  --md-sys-typescale-body-medium-font: 400 14px/20px var(--md-sys-font);
+  --md-sys-typescale-body-small-font: 400 12px/16px var(--md-sys-font);
+  --md-sys-typescale-label-large-font: 500 14px/20px var(--md-sys-font);
+  --md-sys-typescale-label-medium-font: 500 12px/16px var(--md-sys-font);
+  --md-sys-typescale-label-small-font: 500 11px/16px var(--md-sys-font);
+  --md-sys-font: system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  /* ---- M3 shape scale ---- */
+  --md-sys-shape-corner-none: 0px;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-full: 999px;
+
+  /* ---- M3 elevation (box-shadow pairs, levels 0-5) ---- */
+  --md-sys-elevation-0: none;
+  --md-sys-elevation-1:
+    0px 1px 2px 0px rgba(0, 0, 0, 0.3), 0px 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --md-sys-elevation-2:
+    0px 1px 2px 0px rgba(0, 0, 0, 0.3), 0px 2px 6px 2px rgba(0, 0, 0, 0.15);
+  --md-sys-elevation-3:
+    0px 1px 3px 0px rgba(0, 0, 0, 0.3), 0px 4px 8px 3px rgba(0, 0, 0, 0.15);
+  --md-sys-elevation-4:
+    0px 2px 3px 0px rgba(0, 0, 0, 0.3), 0px 6px 10px 4px rgba(0, 0, 0, 0.15);
+  --md-sys-elevation-5:
+    0px 4px 4px 0px rgba(0, 0, 0, 0.3), 0px 8px 12px 6px rgba(0, 0, 0, 0.15);
+
+  /* ---- M3 state-layer opacities (hover/focus/pressed) ---- */
+  --md-sys-state-hover-opacity: 0.08;
+  --md-sys-state-focus-opacity: 0.1;
+  --md-sys-state-pressed-opacity: 0.1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --md-sys-color-primary: #aec6ff;
+    --md-sys-color-on-primary: #002e69;
+    --md-sys-color-primary-container: #12448e;
+    --md-sys-color-on-primary-container: #d8e2ff;
+
+    --md-sys-color-secondary: #bec6dc;
+    --md-sys-color-on-secondary: #283141;
+    --md-sys-color-secondary-container: #3e4759;
+    --md-sys-color-on-secondary-container: #dae2f9;
+
+    --md-sys-color-tertiary: #ddbcdd;
+    --md-sys-color-on-tertiary: #402843;
+    --md-sys-color-tertiary-container: #583e5a;
+    --md-sys-color-on-tertiary-container: #fbd7fc;
+
+    --md-sys-color-error: #ffb4ab;
+    --md-sys-color-on-error: #690005;
+    --md-sys-color-error-container: #93000a;
+    --md-sys-color-on-error-container: #ffdad6;
+
+    --md-sys-color-background: #121318;
+    --md-sys-color-on-background: #e2e2e9;
+    --md-sys-color-surface: #121318;
+    --md-sys-color-on-surface: #e2e2e9;
+    --md-sys-color-surface-variant: #44474f;
+    --md-sys-color-on-surface-variant: #c4c6d0;
+    --md-sys-color-surface-container-lowest: #0c0e13;
+    --md-sys-color-surface-container-low: #1a1b20;
+    --md-sys-color-surface-container: #1e2025;
+    --md-sys-color-surface-container-high: #282a2f;
+    --md-sys-color-surface-container-highest: #33353a;
+    --md-sys-color-outline: #8e9099;
+    --md-sys-color-outline-variant: #44474f;
+    --md-sys-color-inverse-surface: #e2e2e9;
+    --md-sys-color-inverse-on-surface: #2f3036;
+    --md-sys-color-inverse-primary: #2f5fac;
+
+    --md-ext-color-sev4: #ffb787;
+    --md-ext-color-on-sev4: #4a2800;
+    --md-ext-color-sev4-container: #693c00;
+    --md-ext-color-on-sev4-container: #ffdcb8;
+
+    --md-ext-color-sev1: #c4c6d0;
+    --md-ext-color-on-sev1: #2e3038;
+    --md-ext-color-sev1-container: #2c2f38;
+    --md-ext-color-on-sev1-container: #dee2eb;
+
+    --md-ext-color-sev-pending: #f4bd35;
+    --md-ext-color-on-sev-pending: #402d00;
+    --md-ext-color-sev-pending-container: #5c4200;
+    --md-ext-color-on-sev-pending-container: #ffe08c;
+    --md-ext-color-sev-pending-stripe: #4a3400;
+  }
+}

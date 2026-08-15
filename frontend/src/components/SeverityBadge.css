@@ -1,0 +1,24 @@
+.severity-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #1a1a1a;
+}
+
+.severity-red { background: #ef4444; color: #fff; }
+.severity-orange { background: #f97316; color: #1a1a1a; }
+.severity-yellow { background: #eab308; color: #1a1a1a; }
+.severity-blue { background: #3b82f6; color: #fff; }
+.severity-gray { background: #9ca3af; color: #1a1a1a; }
+
+.severity-pending {
+  background: repeating-linear-gradient(45deg, #fbbf24, #fbbf24 6px, #fde68a 6px, #fde68a 12px);
+  color: #1a1a1a;
+  font-size: 1rem;
+}

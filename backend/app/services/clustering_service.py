@@ -109,21 +109,22 @@ def assign(store: InMemoryStore, request: Request, llm_matches: list[MatchResult
 def manual_merge(store: InMemoryStore, request_id: str, target_event_id: str | None,
                   target_request_id: str | None, actor: str) -> Event:
     """FR-205c: bypasses only the geometric filter, never authority/pending-addition logic."""
-    request = store.requests[request_id]
-    if target_event_id:
-        event = store.events[target_event_id]
-        _attach_to_event(store, request, event)
-        result_event = event
-    else:
-        other = store.requests[target_request_id]
-        new_event = Event(id=store.new_id("evt"), status=EventStatus.CANDIDATE,
-                           member_request_ids=[request.id, other.id])
-        request.event_id = new_event.id
-        request.status = RequestStatus.IN_CANDIDATE_EVENT
-        other.event_id = new_event.id
-        other.status = RequestStatus.IN_CANDIDATE_EVENT
-        recompute_centroid(store, new_event)
-        store.events[new_event.id] = new_event
-        result_event = new_event
-    log_action(store, actor, "manual_merge", request_id)
-    return result_event
+    with store._lock:  # BE-20
+        request = store.requests[request_id]
+        if target_event_id:
+            event = store.events[target_event_id]
+            _attach_to_event(store, request, event)
+            result_event = event
+        else:
+            other = store.requests[target_request_id]
+            new_event = Event(id=store.new_id("evt"), status=EventStatus.CANDIDATE,
+                               member_request_ids=[request.id, other.id])
+            request.event_id = new_event.id
+            request.status = RequestStatus.IN_CANDIDATE_EVENT
+            other.event_id = new_event.id
+            other.status = RequestStatus.IN_CANDIDATE_EVENT
+            recompute_centroid(store, new_event)
+            store.events[new_event.id] = new_event
+            result_event = new_event
+        log_action(store, actor, "manual_merge", request_id)
+        return result_event

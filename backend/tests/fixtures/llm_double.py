@@ -6,6 +6,7 @@ responses supplied by the test. Never calls a live provider.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
 from app.llm.client import EmbeddingError, LLMCompletionResult, LLMTimeoutError
@@ -41,11 +42,16 @@ class FakeLLMClient:
       rendered prompt (docs/testing-spec.md §4.5).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, latency_s: float = 0.0) -> None:
         self._responses: dict[str, ScriptedResponse] = {}
         self._fail_embedding: set[str] = set()
         self.calls: list[str] = []
         self.embed_calls: list[str] = []
+        # BE-20/NFR-101: an optional simulated network delay so a load
+        # test can measure the system's own overhead against a
+        # "realistic, not zero" LLM latency (docs/testing-spec.md §8),
+        # without ever hitting a live provider.
+        self.latency_s = latency_s
 
     def script(self, key: str, response: ScriptedResponse) -> None:
         self._responses[key] = response
@@ -55,6 +61,8 @@ class FakeLLMClient:
 
     def embed(self, text: str) -> list[float]:
         self.embed_calls.append(text)
+        if self.latency_s:
+            time.sleep(self.latency_s)
         if text in self._fail_embedding:
             raise EmbeddingError(f"simulated embedding failure for {text!r}")
         # Deterministic pseudo-embedding: stable hash-derived floats so
@@ -64,6 +72,8 @@ class FakeLLMClient:
 
     def complete(self, prompt: str, key: str | None = None) -> LLMCompletionResult:
         self.calls.append(prompt)
+        if self.latency_s:
+            time.sleep(self.latency_s)
         lookup_key = key or prompt
         resp = self._responses.get(lookup_key)
         if resp is None:

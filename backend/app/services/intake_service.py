@@ -46,23 +46,27 @@ def submit(
     absorbed into the returned Request per NFR-103 (never an exception)."""
     _validate(need_description, location)  # step 1
 
-    device = get_or_create_device_fingerprint(store, device_fingerprint_id)  # step 2
+    # docs/design.md §6.4: the lock brackets only the fast store-mutation
+    # steps; the slow LLM/embedding call below happens unlocked so one slow
+    # submission never blocks another request's store reads/writes.
+    with store._lock:
+        device = get_or_create_device_fingerprint(store, device_fingerprint_id)  # step 2
 
-    request_id = store.new_id("req")
-    request = Request(
-        id=request_id,
-        need_description=need_description,
-        location=location,
-        device_fingerprint_id=device_fingerprint_id,
-        photo_url=photo_url,
-    )
+        request_id = store.new_id("req")
+        request = Request(
+            id=request_id,
+            need_description=need_description,
+            location=location,
+            device_fingerprint_id=device_fingerprint_id,
+            photo_url=photo_url,
+        )
 
-    if device.device_flag:  # step 3: FR-107/308 — accept, but skip the pipeline entirely
-        request.status = RequestStatus.QUARANTINED
-        store.requests[request_id] = request
-        return request
+        if device.device_flag:  # step 3: FR-107/308 — accept, but skip the pipeline entirely
+            request.status = RequestStatus.QUARANTINED
+            store.requests[request_id] = request
+            return request
 
-    store.requests[request_id] = request  # step 4
+        store.requests[request_id] = request  # step 4
 
     try:  # step 5
         embedding = llm_client.embed(need_description)
@@ -81,14 +85,17 @@ def submit(
         )
         llm_result = llm_client.complete(prompt, key=need_description)  # FakeLLMClient accepts `key`
 
-        request.urgency_score = llm_result.urgency_score
-        request.urgency_reasoning = llm_result.urgency_reasoning
-        request.match_reasons = llm_result.matches
+        with store._lock:
+            request.urgency_score = llm_result.urgency_score
+            request.urgency_reasoning = llm_result.urgency_reasoning
+            request.match_reasons = llm_result.matches
     except (LLMTimeoutError, EmbeddingError):  # NFR-103
-        request.urgency_score = None
-        request.urgency_reasoning = None
-        request.status = RequestStatus.STANDALONE
+        with store._lock:
+            request.urgency_score = None
+            request.urgency_reasoning = None
+            request.status = RequestStatus.STANDALONE
         return request  # do NOT proceed to clustering with a failed match result
 
-    clustering_service.assign(store, request, llm_result.matches)  # step 6
+    with store._lock:
+        clustering_service.assign(store, request, llm_result.matches)  # step 6
     return request

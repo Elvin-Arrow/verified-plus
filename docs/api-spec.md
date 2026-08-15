@@ -1,6 +1,6 @@
 # API Specification — Aid Request Triage & Trust Tool
 
-Version 0.1 · Implements `docs/spec.md` v0.3 §7 and `docs/design.md` v0.2 §2/§4. This document is the authoritative contract for every HTTP endpoint — request/response shapes, status codes, and error behavior — that `docs/spec.md`'s illustrative API table and `docs/design.md`'s router pseudocode both point back to.
+Version 0.1 · Implements `docs/spec.md` v0.3 §7 and `docs/design.md` v0.3 §2/§4. This document is the authoritative contract for every HTTP endpoint — request/response shapes, status codes, and error behavior — that `docs/spec.md`'s illustrative API table and `docs/design.md`'s router pseudocode both point back to. `match_reasons` and `suggested_merges[].distance_km` (§7) were the two fields this spec anticipated correctly before `docs/design.md`/`docs/data-model.md` had matching storage for them — see `docs/data-model.md` §7 for that fix.
 
 ## 1. Conventions
 

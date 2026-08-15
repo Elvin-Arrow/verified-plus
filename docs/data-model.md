@@ -1,6 +1,6 @@
 # Data Model Specification — Aid Request Triage & Trust Tool
 
-Version 0.1 · Implements `docs/spec.md` v0.3 §6 and `docs/design.md` v0.2 §3. This document is the authoritative field-by-field schema — types, constraints, defaults, relationships, and state machines — that `docs/api-spec.md`'s request/response bodies and `docs/design.md`'s pseudocode both serialize to/from.
+Version 0.2 · Implements `docs/spec.md` v0.3 §6 and `docs/design.md` v0.3 §3 (post 6-document alignment pass — see §7). This document is the authoritative field-by-field schema — types, constraints, defaults, relationships, and state machines — that `docs/api-spec.md`'s request/response bodies and `docs/design.md`'s pseudocode both serialize to/from.
 
 ## 1. Storage model
 
@@ -20,13 +20,14 @@ The central entity — one submitted aid ask.
 | `photo_url` | `string \| null` | optional (FR-103) | Passive display only; never fed to any model. |
 | `device_fingerprint_id` | `string` | required (FR-105) | FK → `DeviceFingerprint.id`. |
 | `submitted_at` | `datetime` | required, server clock UTC (FR-106) | Immutable. |
-| `urgency_score` | `int \| null` | `1 ≤ x ≤ 5`, or `null` | `null` only means "pending/failed" (NFR-103) — an ambiguous-input default still produces `3` (FR-301), never `null`. |
-| `urgency_reasoning` | `string \| null` | — | `null` iff `urgency_score` is `null`. |
-| `original_urgency_score` | `int \| null` | `1 ≤ x ≤ 5`, or `null` | Set only once, the first time `override-urgency` (FR-603) is called; never overwritten again — a second override changes `urgency_score` but not this field, so it always holds the LLM's original value, not the previous override. |
+| `urgency_score` | `int \| null` | `1 ≤ x ≤ 5`, or `null` | `null` in exactly two cases: (a) an LLM/embedding call failed or is still pending (NFR-103), or (b) the submitting device was flagged, so the request was quarantined at intake and the pipeline never ran at all (FR-107/308) — neither case is "an ambiguous input," which is a *third*, unrelated situation that still produces a valid non-null score (the FR-301 default of `3`). |
+| `urgency_reasoning` | `string \| null` | — | `null` under the same two conditions as `urgency_score`. |
+| `original_urgency_score` | `int \| null` | `1 ≤ x ≤ 5`, or `null` | Set only once, the first time `override-urgency` (FR-603) is called; never overwritten again — a second override changes `urgency_score` but not this field, so it always holds the LLM's original value, not the previous override. See `docs/design.md` §4.7 for the guard that enforces this. |
+| `match_reasons` | `list[MatchResult]` | — | `MatchResult { candidate_id: string, is_match: bool, reason: string }`. The LLM's per-candidate judgments from FR-204, persisted at submission time so `GET /api/requests/{id}` (`docs/api-spec.md` §7) can render them later without a second LLM call. Empty list if there were no candidates in the geofenced pool; unset (not applicable) if the request was quarantined at intake. |
 | `event_id` | `string \| null` | FK → `Event.id`, nullable | Set for `in_candidate_event`, `pending_addition`, `in_verified_event`; `null` for `standalone`/terminal-after-dissolution. |
 | `status` | `RequestStatus` (§2.6) | required | See state machine, §3.1. |
 | `verified` | `bool` | default `false` | Orthogonal to `status` — see §3.3. The field that actually decides Dispatch Queue membership for a `standalone` request. |
-| `embedding` | `list[float] \| null` | — | Cached at submission time (FR-201); `null` iff the embedding call failed (NFR-103). Never re-embedded on later comparisons — a fixed embedding model is assumed stable for the session's duration. |
+| `embedding` | `list[float] \| null` | — | Cached at submission time (FR-201); `null` under the same two conditions as `urgency_score` above. Never re-embedded on later comparisons — a fixed embedding model is assumed stable for the session's duration. |
 | `device_flagged` | `bool` (derived, not stored) | — | Computed at read time as `DeviceFingerprint(device_fingerprint_id).device_flag`. Listed here because it appears in every API response (`RequestSummary`, `api-spec.md` §1.3) — not a column on `Request` itself, to avoid a denormalized copy going stale. |
 
 **Not modeled** (explicitly, per `docs/spec.md` §8 and NFR-201): no name, phone number, or any other individually-identifying field. `device_fingerprint_id` is pseudonymous by design.
@@ -38,7 +39,7 @@ A cluster of requests believed to describe one underlying incident.
 | Field | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | `string` | PK, server-generated | e.g. `evt_d4e5f6` |
-| `member_request_ids` | `list[string]` | FK[] → `Request.id`; **2+ required for the Event to exist as an Incident Card** (FR-501) | Active, approved members only. Auto-dissolves at 0–1 (FR-504b, §3.4). |
+| `member_request_ids` | `list[string]` | FK[] → `Request.id`; **2+ required for the Event to exist as an Incident Card** (FR-501) | Active, current members — for a `candidate` Event these are still individually unverified (`status = in_candidate_event`); they only become coordinator-*approved* once the Event itself is verified (`verify_event`, `docs/design.md` §4.2b). Auto-dissolves at 0–1 (FR-504b, §3.4). |
 | `pending_member_request_ids` | `list[string]` | FK[] → `Request.id` | FR-304b: matched to this (already-`verified`) Event but not yet coordinator-approved. Disjoint from `member_request_ids` — a request is in exactly one of the two lists, never both. |
 | `status` | `EventStatus` (§2.6) | required | `candidate` → `verified` → `dispatched`, one-directional (§3.2). |
 | `verified_by` | `string \| null` | — | Set alongside `status → verified`; the `actor` from that action. |
@@ -102,7 +103,7 @@ Not part of any entity's schema, but part of the store (`docs/design.md` §3) an
 
 - `SessionConfig { geofence_radius_km: float = 1.0, max_cluster_span_km: float = 1.5 }` — FR-208. One instance per store, not per-request.
 - `urgency_calibration_buffer: list[{text, original, corrected, reason}]`, `match_calibration_buffer: list[{a, b, reason}]` — FR-604, each capped at N=5 (FIFO eviction).
-- `suggested_merges: list[{request_id, event_id?, request_id_2?}]` — FR-205b. Cleared for a given request once a `merge` (FR-205c) or a later dissolution removes the relevant Event/request.
+- `suggested_merges: list[{request_id, event_id?, request_id_2?, distance_km}]` — FR-205b. Exactly one of `event_id`/`request_id_2` is set, matching whichever side of the pair was excluded (§3.1 of `docs/design.md` §4.2). `distance_km` is the haversine distance that caused the geometric-filter exclusion — surfaced by `GET /api/requests/{id}` (`docs/api-spec.md` §7) so a coordinator reviewing the "Suggested Merge" affordance can see how close a near-miss it was. Cleared for a given request once a `merge` (FR-205c) or a later dissolution removes the relevant Event/request, and wholesale on a full FR-702 reset.
 
 ## 3. Relationships & state machines
 
@@ -157,7 +158,7 @@ An `Event` is **deleted**, not soft-terminal, on dissolution or dismissal — th
 1. **Never verified** — fresh submission with no match, or reverted via Split Out/Dismiss Cluster/Rescue. `verified = false`. → Intake & Verification Inbox (FR-401).
 2. **Was verified, Event since dissolved** — this request earned `verified = true` while it was an `in_verified_event` member (via `approve_pending` or the initial `verify_event`), and its Event later dissolved out from under it (FR-504b). `verified = true` is preserved. → Dispatch Queue (FR-403), awaiting `dispatch_standalone`.
 
-`verified` is set **only** by: `verify_event` (for current members), `approve_pending` (for promoted pending members), `verify_standalone`. It is set to `false` only when a `pending_addition` member reverts on dissolution without ever having been approved (`docs/design.md` §4.5). No other code path touches it — critically, ordinary Split Out and Dismiss Cluster leave `verified` untouched at `false` (they only ever apply to unverified members in the first place, since FR-507 restricts Dismiss Cluster to `candidate` Events and FR-504's Split Out on a `verified` Event's member would only run before that member's own `verified` flag was set — i.e. never on an already-verified member without going through dissolution instead).
+`verified` is set to `true` **only** by: `verify_event` (for current members), `approve_pending` (for promoted pending members), `verify_standalone`. It is set to `false` by: a `pending_addition` member reverting on dissolution without ever having been approved (`docs/design.md` §4.5), and — the case worth calling out explicitly, since it's easy to get backwards — **`split_out`, even when the request being split out was already `verified = true`** (`docs/design.md` §4.5b). FR-504 explicitly allows Split Out on any individual member of an *expanded Incident Card*, including a `verified` Event's card sitting in the Dispatch Queue — Split Out is not restricted to `candidate` Events the way Dismiss Cluster (FR-507) is. When it's used on an already-verified member, that member's own prior approval does not carry over: FR-504 calls this "re-evaluated independently," meaning it re-enters as a fresh, unverified standalone request. This is the opposite of FR-504b's *dissolution* case (§3.1 above) — dissolution preserves the **sole remaining, non-split-out** member's own verified state, precisely because that member wasn't the one a coordinator judged didn't belong; the member actively split out was.
 
 ### 3.4 Event dissolution and orphan prevention
 
@@ -193,3 +194,17 @@ Not a hard requirement, but documented so `docs/api-spec.md`'s examples and any 
 | §2.3 `DeviceFingerprint` | `docs/spec.md` §6 `DeviceFingerprint` block |
 | §2.4 `CoordinatorAction` | `docs/spec.md` §6 `CoordinatorAction` block; FR-601 |
 | §3.1–3.4 state machines | `docs/spec.md` FR-205/205c, FR-304/304b, FR-501–507; `docs/design.md` §4.2–4.6 |
+
+## 7. Change log — 6-document alignment pass (v0.1 → v0.2)
+
+A Gemini review across all six project documents (`idea.md`, `spec.md`, `design.md`, and this document's siblings `api-spec.md`/`architecture.md`) found several real defects, fixed here and in `docs/design.md`/`docs/spec.md` together:
+
+1. **`urgency_score`/`embedding`/`urgency_reasoning` being `null` was documented as meaning only an LLM/embedding failure (NFR-103)** — wrong; a device-flagged-at-intake quarantine (FR-107) also skips the pipeline entirely and leaves these `null`, for an unrelated reason. §2.1 now names both cases.
+2. **`member_request_ids` was labeled "approved members only"** — wrong for `candidate` Events, whose members are active but individually unverified until the whole Event is verified. §2.2 reworded.
+3. **A factually incorrect claim that Split Out can never apply to an already-verified member** — FR-504 explicitly allows it on any member of an expanded Incident Card, verified or not. §3.3 rewritten with the correct behavior: a split-out member's own `verified` flag resets to `false` regardless of its prior state, which is the opposite of (and easily confused with) FR-504b's dissolution case.
+4. **`match_reasons` (FR-506) had no field anywhere** — `api-spec.md` promised it in the detail response, but neither this document nor `design.md`'s `Request` dataclass had anywhere to store it. Added to §2.1 and to `design.md`'s submission pipeline.
+5. **`suggested_merges` (§2.7) was missing `distance_km`**, which `api-spec.md` §7's example response already assumed. Added, and traced back to where `design.md`'s `assign()` now computes and stores it.
+6. **`original_urgency_score`'s "never overwritten" guarantee wasn't actually enforced in `design.md`'s pseudocode** — a second override call blindly reset it every time. Fixed in `design.md` §4.7.
+7. **`DeviceFingerprint.confirmed_fraud_request_ids` was never populated** by `design.md`'s `reject_and_flag_device`. Fixed.
+8. **A real state-machine bug**: `reject_and_flag_device` updated a rejected member's `status` but never removed it from `Event.member_request_ids`, so `maybe_dissolve_event`'s length check could never see the membership actually shrink — Events could accumulate only-rejected members and never dissolve, violating the §3.4 invariant. Fixed by centralizing all member removal through one `detach_from_event` helper in `design.md` §4.4, used consistently by reject-and-flag, split-out, and the quarantine sweep.
+9. **`split_out` and `rescue` were referenced by name in `api-spec.md`/`design.md`'s prose but had no actual pseudocode anywhere.** Added as `design.md` §4.5b.

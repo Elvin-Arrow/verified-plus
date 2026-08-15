@@ -1,6 +1,6 @@
 # Software Design Specification — Aid Request Triage & Trust Tool
 
-Version 0.2 · Implements `docs/spec.md` v0.3 (post rubric, sanity-pass, and cross-document alignment pass — see spec.md §11). Every design decision below is traced to the requirement ID(s) it satisfies — search for "FR-"/"NFR-" to cross-reference.
+Version 0.3 · Implements `docs/spec.md` v0.3 (post rubric, sanity-pass, and cross-document alignment pass — see spec.md §11), further hardened by a 6-document alignment pass covering the new `docs/api-spec.md`/`docs/data-model.md`/`docs/architecture.md` — see `docs/data-model.md` §7 for that pass's change log. Every design decision below is traced to the requirement ID(s) it satisfies — search for "FR-"/"NFR-" to cross-reference.
 
 ## 1. Architecture overview
 
@@ -107,9 +107,14 @@ class Request:
     photo_url: str | None
     device_fingerprint_id: str
     submitted_at: datetime
-    urgency_score: int | None = None          # FR-301; None = NFR-103 pending/failed
+    urgency_score: int | None = None          # None = NFR-103 pending/failed OR device-flagged-at-intake
+                                                # skip (FR-107) — see the note on this field in data-model.md §2.1
     urgency_reasoning: str | None = None
-    original_urgency_score: int | None = None  # FR-603
+    original_urgency_score: int | None = None  # FR-603; set ONLY on the first override — see §4.7
+    match_reasons: list[MatchResult] = field(default_factory=list)  # FR-506/602: the LLM's per-candidate
+                                                # match/no-match judgments + reason strings from FR-204,
+                                                # persisted at submission time (§4.1) so the detail view can
+                                                # show them later without re-calling the LLM
     event_id: str | None = None
     status: RequestStatus = RequestStatus.STANDALONE
     verified: bool = False                     # FR-504b/spec §6: orthogonal to status — set True the moment
@@ -192,6 +197,7 @@ POST /api/requests
        )                                                                  # returns {urgency_score, urgency_reasoning, matches: [...]}
        request.urgency_score = llm_result.urgency_score                  # FR-301, ambiguous-input default=3 handled inside the prompt contract
        request.urgency_reasoning = llm_result.urgency_reasoning
+       request.match_reasons = llm_result.matches                        # persisted for FR-506/FR-602's detail view — see §3
      except (LLMTimeoutError, EmbeddingError):
        request.urgency_score = None; request.urgency_reasoning = "pending/unavailable"  # NFR-103
        return request   # do NOT proceed to clustering with a failed match result
@@ -222,10 +228,16 @@ def assign(request: Request, llm_matches: list[MatchResult]) -> None:
     ]
     for e in matched_in_event.values():
         if e not in geo_valid_events:
-            store.suggested_merges.append({"request_id": request.id, "event_id": e.id})       # FR-205b
+            store.suggested_merges.append({                                                    # FR-205b
+                "request_id": request.id, "event_id": e.id,
+                "distance_km": geo.haversine_km(request.location, e.representative_location),   # api-spec.md §7
+            })
     for c in matched_standalone:
         if c not in geo_valid_standalone:
-            store.suggested_merges.append({"request_id": request.id, "request_id_2": c.id})   # FR-205b
+            store.suggested_merges.append({                                                    # FR-205b
+                "request_id": request.id, "request_id_2": c.id,
+                "distance_km": geo.haversine_km(request.location, c.location),
+            })
 
     if geo_valid_events:
         # Step 2: authority selection among geometrically valid EXISTING Events
@@ -350,6 +362,27 @@ def sorted_queue(items: list[Request | Event]) -> list:
 ### 4.4 Device flag → quarantine sweep (FR-306, FR-308, FR-503)
 
 ```python
+def detach_from_event(r: Request) -> None:
+    """Single call site for 'remove this request from its Event, whichever list it's in.'
+    Every path that pulls a member out of an Event (reject, split-out, quarantine sweep) goes
+    through this — not a duplicated remove-from-list snippet at each call site — because that
+    duplication is exactly what let a real bug slip through an earlier draft of this design:
+    a member's own `status` was updated to REJECTED without ever being removed from the Event's
+    `member_request_ids`, so `maybe_dissolve_event`'s length check never saw the membership
+    actually shrink, and the Event could never dissolve — a ghost Event, still on the board,
+    full of already-rejected requests, forever."""
+    event = store.events.get(r.event_id)
+    r.event_id = None
+    if not event:
+        return
+    if r.id in event.member_request_ids:
+        event.member_request_ids.remove(r.id)
+        recompute_centroid(event)
+    elif r.id in event.pending_member_request_ids:
+        event.pending_member_request_ids.remove(r.id)
+    maybe_dissolve_event(event)
+
+
 def reject_and_flag_device(event_id: str, device_id: str, actor: str) -> None:
     with store._lock:
         device = store.devices[device_id]
@@ -358,14 +391,17 @@ def reject_and_flag_device(event_id: str, device_id: str, actor: str) -> None:
         event = store.events[event_id]
         this_cards_members = [r for r in requests_of(event) if r.device_fingerprint_id == device_id]
         for r in this_cards_members:
-            r.status = RequestStatus.REJECTED                                 # FR-503(b)
-        maybe_dissolve_event(event)                                           # FR-504b check
+            r.status = RequestStatus.REJECTED                                 # FR-503(b) — terminal
+            device.confirmed_fraud_request_ids.append(r.id)                   # data-model.md §2.3 audit trail
+            detach_from_event(r)                                              # removes from member/pending
+                                                                                # list + clears event_id +
+                                                                                # dissolve check, all together
 
         for r in store.requests.values():                                     # FR-503(c) / FR-308(b)
             if r.device_fingerprint_id == device_id and r.status not in (RequestStatus.DISPATCHED, RequestStatus.REJECTED):
                 r.status = RequestStatus.QUARANTINED
                 if r.event_id:
-                    detach_from_event(r)   # remove from whatever member/pending list it was in, may trigger dissolve
+                    detach_from_event(r)
 
         log_action(actor, "reject_flag_device", event_id, note=f"device={device_id}")
 ```
@@ -401,6 +437,48 @@ def maybe_dissolve_event(event: Event) -> None:
     del store.events[event.id]
 ```
 
+### 4.5b Split Out and Rescue (FR-504, FR-407)
+
+Both funnel through `detach_from_event` (§4.4), same as `reject_and_flag_device`:
+
+```python
+def split_out(request_id: str, actor: str) -> None:                          # FR-504
+    r = store.requests[request_id]
+    if not r.event_id:
+        raise InvalidStateTransition("nothing to split out of")               # api-spec.md §5 -> 409
+
+    # capture a sibling's text for calibration BEFORE detaching, while r.event_id still resolves
+    event = store.events.get(r.event_id)
+    sibling_text = next((m.need_description for m in requests_of(event) if m.id != r.id), None) if event else None
+
+    detach_from_event(r)                                                      # clears event_id, may dissolve
+    r.status = RequestStatus.STANDALONE
+    r.verified = False   # FR-504: "re-evaluated independently." The request being actively split OUT is the
+                          # one a coordinator judged didn't belong, so it does NOT keep any prior approval —
+                          # this is the opposite case from FR-504b's dissolution (§4.5), which preserves the
+                          # SOLE REMAINING member's own verified state. That member wasn't the one split out;
+                          # this one was, precisely because it was judged not to belong.
+    if sibling_text:
+        record_duplicate_correction(r.need_description, sibling_text,          # FR-604: implies the LLM's
+                                     reason="coordinator split this request out of a cluster")  # match was wrong
+    log_action(actor, "split_out", request_id)
+    matching_service.rerun(r)   # re-run FR-202-206 against the current pool — the pool has changed since
+                                 # this request last searched, and its previous match result is now stale
+
+
+def rescue(request_id: str, actor: str) -> None:                              # FR-407
+    r = store.requests[request_id]
+    if r.status != RequestStatus.QUARANTINED:
+        raise InvalidStateTransition("not quarantined")
+    r.status = RequestStatus.STANDALONE
+    r.verified = False
+    log_action(actor, "rescue_from_quarantine", request_id)
+    matching_service.rerun(r)   # a request quarantined at intake (FR-107) never got matched in the first
+                                 # place; one swept mid-flight (FR-308(b)) may have missed matches that
+                                 # arrived while held — re-evaluating fresh is simpler and safer than trying
+                                 # to reconstruct whatever pre-quarantine state it would otherwise have had
+```
+
 ### 4.6 Dismiss Cluster (FR-507)
 
 ```python
@@ -423,7 +501,10 @@ def dismiss_cluster(event_id: str, actor: str) -> None:
 ```python
 def record_urgency_override(request_id, corrected_score, reason, actor):
     r = store.requests[request_id]
-    r.original_urgency_score = r.urgency_score
+    if r.original_urgency_score is None:
+        r.original_urgency_score = r.urgency_score   # set ONLY on the first override (data-model.md §2.1) —
+                                                        # a second override must not clobber the LLM's true
+                                                        # original with an intermediate coordinator-corrected value
     r.urgency_score = corrected_score
     store.urgency_calibration_buffer.append({
         "text": r.need_description, "original": r.original_urgency_score,
@@ -448,6 +529,7 @@ def replay(mode: Literal["reset", "append"], batch: list[SeedRequest], geofence_
         store.requests.clear(); store.events.clear(); store.devices.clear()
         store.actions.clear()                                    # FR-702: audit log wiped too
         store.urgency_calibration_buffer.clear(); store.match_calibration_buffer.clear()
+        store.suggested_merges.clear()
         if geofence_radius_km: store.config.geofence_radius_km = geofence_radius_km   # FR-208
         if max_cluster_span_km: store.config.max_cluster_span_km = max_cluster_span_km
     for seed_req in batch:

@@ -62,7 +62,17 @@ No stack was mandated; the following are assumptions, not requirements:
 
 ### 4.3 Verification & device scrutiny (FR-3xx)
 
-- **FR-301** — The system SHALL compute an `urgency_score` (integer 1–5) for every request via the same LLM call as FR-204, using a fixed rubric (5 = immediate threat to life/medical, down to 1 = non-urgent/general supply request — full rubric text is an open item, see §9).
+- **FR-301** — The system SHALL compute an `urgency_score` (integer 1–5) for every request via the same LLM call as FR-204, using the fixed rubric below. The rubric SHALL be embedded verbatim in the LLM prompt (not paraphrased at call time), so scoring is reproducible across requests:
+
+  | Score | Label | Criteria | Examples |
+  |---|---|---|---|
+  | **5** | Immediate threat to life | Person(s) trapped, unable to escape, or in active physical danger; medical emergency (unconscious, severe bleeding, not breathing, in labor, cardiac/stroke symptoms); imminent structural or environmental danger (collapsing building, active fire, rising floodwater with people inside). | "trapped under rubble, can't move my leg"; "my father collapsed, not responding"; "water is rising fast, we're on the roof" |
+  | **4** | Serious, time-sensitive risk | Injured but currently stable; exposed to severe weather/conditions with no shelter; a known medical condition running out of a critical supply within hours (insulin, oxygen, dialysis); unaccompanied children, elderly, or disabled individuals in an unsafe-but-not-immediately-life-threatening situation. | "broken arm, in pain, no transport to clinic"; "insulin runs out tonight"; "3 kids alone since yesterday, no adult" |
+  | **3** | Urgent unmet basic need | No access to clean water or food for self/household; displaced with no shelter but not facing immediate exposure danger; a medical need that should be treated within a day or two, not this hour. | "no clean water for 2 days"; "house flooded, we're staying with neighbors but need somewhere"; "wound needs cleaning, not bleeding badly" |
+  | **2** | Important, not urgent | General supply request (blankets, hygiene kits, routine food resupply) for a household that is otherwise safe; property damage with no one at risk. | "need blankets for winter"; "roof damaged, we're fine, need tarp eventually" |
+  | **1** | Non-urgent / informational | Requests that could reasonably wait days without harm; general information requests; low-priority asks. | "when will the aid center reopen"; "would like extra supplies if available" |
+
+  If the free-text description does not clearly indicate severity (e.g. it's ambiguous, truncated, or off-topic), the model SHALL default to **3** rather than silently guessing at either extreme, and SHALL set `urgency_reasoning` to explicitly state the score is a default due to insufficient information. This is a distinct case from the `null`/failed-call state handled by NFR-103 — a defaulted-to-3 score is a valid score that participates normally in sorting, just flagged in its reasoning text so a coordinator can spot and correct it via FR-603 if warranted.
 - **FR-302** — The urgency-scoring prompt SHALL instruct the model to score based on described severity, not on writing fluency, message length, or language; brevity or non-native phrasing SHALL NOT by itself lower the score.
 - **FR-303** — Every request and Event SHALL carry a `verification_status` (`unverified` / `verified` / `dispatched` / `rejected` / `quarantined`, per the state values in §6). Cluster size or member/device count alone SHALL NOT change `verification_status` — only an explicit coordinator action does.
 - **FR-304** — Upon coordinator verification of a candidate Event (FR-502), the system SHALL set `verification_status = verified` for that Event and for the member requests explicitly present and approved at that time. It SHALL NOT retroactively or automatically apply to requests added later.
@@ -213,7 +223,7 @@ Note: `event_confidence` from the v0.1 draft has been removed as a variable enti
 
 ## 9. Open questions for the user
 
-1. Exact urgency rubric wording beyond the 1/5 anchor points (FR-301) — needs the full 1–5 rubric text.
+1. ~~Exact urgency rubric wording beyond the 1/5 anchor points (FR-301)...~~ **Resolved**: full 1–5 rubric table with criteria, examples, and an explicit ambiguous-input default (score 3, flagged in reasoning) is now embedded in FR-301.
 2. ~~FR-402: is there an explicit "this candidate Event is not real, dismiss it" action...~~ **Resolved**: yes — see FR-507 ("Dismiss Cluster"), distinct from device-level Reject & Flag, never sets `device_flag`.
 3. ~~FR-602: does the feedback/action log only display override history, or must it feed back into future scoring...~~ **Resolved**: it feeds back via in-context few-shot calibration — see FR-603–605 (a coordinator "Override Urgency" action plus a rolling buffer of recent corrections injected into subsequent LLM calls; explicitly prompt-level, not model training).
 4. ~~The 1 km geofence radius and 1.5 km max-cluster-span bound are placeholder values...~~ **Resolved**: kept as defaults but made configurable per session/seed-run — see FR-208 and the updated FR-702.

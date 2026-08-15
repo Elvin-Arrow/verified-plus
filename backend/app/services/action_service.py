@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from app.models.domain import ActionType, Event, EventStatus, Request, RequestStatus
 from app.services.action_log import log_action
 from app.services.clustering_service import recompute_centroid
+from app.services.dissolution import detach_from_event
 from app.store.memory_store import InMemoryStore
 
 
@@ -122,6 +123,72 @@ class _ActionService:
         r.status = RequestStatus.DISPATCHED
         log_action(store, actor, ActionType.DISPATCH_STANDALONE.value, request_id)
         return r
+
+    # --- FR-504: Split Out ---
+    def split_out(self, store: InMemoryStore, llm_client, request_id: str, actor: str) -> Request:
+        from app.services import matching_service
+        from app.services.feedback_service import record_duplicate_correction
+
+        r = store.requests[request_id]
+        if not r.event_id:
+            raise InvalidStateTransition("nothing to split out of", current_status="no event_id")
+
+        # capture a sibling's text for calibration BEFORE detaching, while
+        # r.event_id still resolves
+        event = store.events.get(r.event_id)
+        sibling_text = None
+        if event:
+            for mid in event.member_request_ids:
+                if mid != r.id and mid in store.requests:
+                    sibling_text = store.requests[mid].need_description
+                    break
+
+        detach_from_event(store, r)  # clears event_id, may dissolve
+        r.status = RequestStatus.STANDALONE
+        r.verified = False  # FR-504: "re-evaluated independently" -- the request split OUT
+        # never keeps any prior approval (opposite of FR-504b dissolution's sole survivor)
+
+        if sibling_text:
+            record_duplicate_correction(
+                store, r.need_description, sibling_text,
+                reason="coordinator split this request out of a cluster",
+            )
+        log_action(store, actor, ActionType.SPLIT_OUT.value, request_id)
+        matching_service.rerun(store, llm_client, r)  # re-run against the current pool
+        return r
+
+    # --- FR-407: Rescue ---
+    def rescue(self, store: InMemoryStore, llm_client, request_id: str, actor: str) -> Request:
+        from app.services import matching_service
+
+        r = store.requests[request_id]
+        if r.status != RequestStatus.QUARANTINED:
+            raise InvalidStateTransition(
+                "not quarantined", current_status=r.status.value, expected_status=RequestStatus.QUARANTINED.value,
+            )
+        r.status = RequestStatus.STANDALONE
+        r.verified = False
+        log_action(store, actor, ActionType.RESCUE_FROM_QUARANTINE.value, request_id)
+        matching_service.rerun(store, llm_client, r)
+        return r
+
+    # --- FR-507: Dismiss Cluster ---
+    def dismiss_cluster(self, store: InMemoryStore, event_id: str, actor: str) -> list[str]:
+        event = store.events[event_id]
+        if event.status != EventStatus.CANDIDATE:
+            raise InvalidStateTransition(
+                "Dismiss Cluster only valid on candidate Events",
+                current_status=event.status.value, expected_status=EventStatus.CANDIDATE.value,
+            )
+        reverted_ids = list(event.member_request_ids)
+        for rid in reverted_ids:
+            r = store.requests[rid]
+            r.event_id = None
+            r.status = RequestStatus.STANDALONE
+            # no device_flag touched anywhere here -- that's the entire point of FR-507
+        del store.events[event_id]
+        log_action(store, actor, ActionType.DISMISS_CLUSTER.value, event_id)
+        return reverted_ids
 
 
 action_service = _ActionService()

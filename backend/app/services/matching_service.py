@@ -96,3 +96,35 @@ def top_k_cosine(embedding: list[float], candidates: list[Request], k: int = 5) 
     ]
     scored.sort(key=lambda pair: pair[1], reverse=True)
     return [c for c, _score in scored[:k]]
+
+
+def rerun(store: InMemoryStore, llm_client, request: Request) -> None:
+    """Re-run FR-202-206 against the current pool for a request that's
+    already standalone (called from split_out/rescue, docs/design.md
+    §4.5b) -- the pool has changed since it last searched, so its
+    previous match result is stale. Only urgency-and-match's `matches`
+    are consumed here; `urgency_score` is deliberately left untouched
+    (a coordinator may already have overridden it, and a re-cluster
+    shouldn't silently reset that). On any LLM/embedding failure, per
+    NFR-103, the request simply stays standalone rather than raising."""
+    from app.llm.client import EmbeddingError, LLMTimeoutError
+    from app.llm.prompts import urgency_and_match_prompt
+    from app.services import clustering_service
+
+    try:
+        embedding = request.embedding or llm_client.embed(request.need_description)
+        request.embedding = embedding
+        candidates = geofenced_candidates(store, request)
+        top5 = top_k_cosine(embedding, candidates, k=5)
+        distances = {c.id: haversine_km(request.location, c.location) for c in top5}
+        prompt = urgency_and_match_prompt(
+            request, top5, distances,
+            urgency_buffer=store.urgency_calibration_buffer,
+            match_buffer=store.match_calibration_buffer,
+        )
+        result = llm_client.complete(prompt, key=request.need_description)
+    except (LLMTimeoutError, EmbeddingError):
+        request.status = RequestStatus.STANDALONE
+        return
+
+    clustering_service.assign(store, request, result.matches)
